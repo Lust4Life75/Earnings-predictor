@@ -259,7 +259,7 @@ if not filtered_df.empty:
             
             fig = go.Figure()
             
-          # Formulate the candlestick shapes (Trading 212 Hex Codes)
+# Formulate the candlestick shapes (Trading 212 Hex Codes)
 fig.add_trace(go.Candlestick(
     x=plot_df.index,
     open=plot_df['Open'],
