@@ -72,7 +72,7 @@ def fetch_live_market_analytics():
     live_records = []
     historical_data_frames = {}
     
-    # Define columns explicitly so the app never crashes if data fails to load
+    # Explicitly pre-define columns to prevent empty dataframe crashes (KeyErrors)
     columns = ["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", 
                "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
                "Last Close Price", "Model Rationale Summary"]
@@ -133,7 +133,6 @@ def fetch_live_market_analytics():
         except Exception:
             continue
             
-    # CRITICAL FIX: If records are empty, create an empty dataframe WITH the proper columns
     if not live_records:
         df = pd.DataFrame(columns=columns)
     else:
@@ -141,6 +140,8 @@ def fetch_live_market_analytics():
         df = df.sort_values(by="Days Left")
         
     return df, historical_data_frames
+
+df_live, raw_history = fetch_live_market_analytics()
 
 # --------------------------------------------------------
 # 3. INTERACTIVE DASHBOARD UI
@@ -216,22 +217,19 @@ if not filtered_df.empty:
     target_ticker = st.selectbox("Select an upcoming target ticker to map visual data trends:", filtered_df["Ticker"].unique())
     
     if target_ticker in raw_history:
-        # Extract full dataframe for chosen stock
         stock_df = raw_history[target_ticker].copy()
         current_price = stock_df['Close'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            # Let the user change timeframe views just like Trading 212 (1 Month vs 3 Months)
             time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
             cutoff_days = 22 if time_frame == "1 Month View" else 66
             plot_df = stock_df.tail(cutoff_days)
             
-            # Build the professional Candlestick figure
             fig = go.Figure()
             
-            # 1. Add Candles
+            # Formulate the candlestick shapes (Trading 212 Hex Codes)
             fig.add_trace(go.Candlestick(
                 x=plot_df.index,
                 open=plot_df['Open'],
@@ -239,11 +237,11 @@ if not filtered_df.empty:
                 low=plot_df['Low'],
                 close=plot_df['Close'],
                 name="Price Vector",
-                increasing_line_color='#26a69a', decreasing_line_color='#ef5350', # Pristine modern green/red
+                increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
                 increasing_fill_color='#26a69a', decreasing_fill_color='#ef5350'
             ))
             
-            # 2. Add Horizontal Current Price tracking line (Trading 212 visual match)
+            # Horizontal Target Banner
             fig.add_hline(
                 y=current_price, 
                 line_color="#2196f3", 
@@ -255,11 +253,10 @@ if not filtered_df.empty:
                 annotation_bgcolor="#2196f3"
             )
             
-            # Clean layout configurations
             fig.update_layout(
                 height=450,
                 margin=dict(l=10, r=50, t=10, b=10),
-                xaxis_rangeslider_visible=False, # Hide messy bottom slider for clean aesthetic
+                xaxis_rangeslider_visible=False,
                 paper_bgcolor="white",
                 plot_bgcolor="#fdfdfd",
                 yaxis=dict(side="right", gridcolor="#f0f0f0"),
