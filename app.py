@@ -159,7 +159,10 @@ time_horizon = st.radio(
 )
 
 st.sidebar.header("Data Filter Configurations")
-selected_sector = st.sidebar.multiselect("Sectors", options=df_live["Sector"].unique(), default=df_live["Sector"].unique())
+
+# Pull sectors directly from your database so the dropdown never breaks
+all_possible_sectors = sorted(list(set(info['sector'] for info in TICKER_DATABASE.values())))
+selected_sector = st.sidebar.multiselect("Sectors", options=all_possible_sectors, default=all_possible_sectors)
 
 max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
 filtered_df = df_live[
