@@ -72,10 +72,14 @@ def fetch_live_market_analytics():
     live_records = []
     historical_data_frames = {}
     
+    # Define columns explicitly so the app never crashes if data fails to load
+    columns = ["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", 
+               "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
+               "Last Close Price", "Model Rationale Summary"]
+    
     for ticker, info in TICKER_DATABASE.items():
         try:
             stock = yf.Ticker(ticker)
-            # Fetching 3 months to give a broader candle timeline option
             hist = stock.history(period="3m")
             
             if len(hist) < 15:
@@ -129,12 +133,14 @@ def fetch_live_market_analytics():
         except Exception:
             continue
             
-    df = pd.DataFrame(live_records)
-    if not df.empty:
+    # CRITICAL FIX: If records are empty, create an empty dataframe WITH the proper columns
+    if not live_records:
+        df = pd.DataFrame(columns=columns)
+    else:
+        df = pd.DataFrame(live_records)
         df = df.sort_values(by="Days Left")
+        
     return df, historical_data_frames
-
-df_live, raw_history = fetch_live_market_analytics()
 
 # --------------------------------------------------------
 # 3. INTERACTIVE DASHBOARD UI
