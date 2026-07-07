@@ -259,16 +259,17 @@ if not filtered_df.empty:
             
             fig = go.Figure()
             
-            fig.add_trace(go.Candlestick(
-                x=plot_df.index,
-                open=plot_df['Open'],
-                high=plot_df['High'],
-                low=plot_df['Low'],
-                close=plot_df['Close'],
-                name="Price Vector",
-                increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
-                increasing_fill_color='#26a69a', decreasing_fill_color='#ef5350'
-            ))
+          # Formulate the candlestick shapes (Trading 212 Hex Codes)
+fig.add_trace(go.Candlestick(
+    x=plot_df.index,
+    open=plot_df['Open'],
+    high=plot_df['High'],
+    low=plot_df['Low'],
+    close=plot_df['Close'],
+    name="Price Vector",
+    increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
+    decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
+)) 
             
             fig.add_hline(
                 y=current_price, 
