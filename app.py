@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import yfinance as yf
+import plotly.graph_objects as go
 
 # --------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -69,17 +70,18 @@ TICKER_DATABASE = {
 def fetch_live_market_analytics():
     today = datetime.date.today()
     live_records = []
-    historical_series_dict = {}
+    historical_data_frames = {}
     
     for ticker, info in TICKER_DATABASE.items():
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="1mo")
+            # Fetching 3 months to give a broader candle timeline option
+            hist = stock.history(period="3m")
             
             if len(hist) < 15:
                 continue
                 
-            historical_series_dict[ticker] = hist['Close']
+            historical_data_frames[ticker] = hist
                 
             price_today = hist['Close'].iloc[-1]
             price_14d_ago = hist['Close'].iloc[-14]
@@ -90,7 +92,6 @@ def fetch_live_market_analytics():
             
             empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
             
-            # --- Rule Engine & Automated Rationale Assignment ---
             if actual_runup > 4.5:
                 signal = "🔴 Bearish (Overbought Risk)"
                 confidence = 74
@@ -112,7 +113,7 @@ def fetch_live_market_analytics():
             target_report_date = today + datetime.timedelta(days=simulated_days_out)
 
             live_records.append({
-                "Select": False,  # Checkbox trigger column
+                "Select": False,
                 "Ticker": ticker,
                 "Company": info['name'],
                 "Sector": info['sector'],
@@ -131,7 +132,7 @@ def fetch_live_market_analytics():
     df = pd.DataFrame(live_records)
     if not df.empty:
         df = df.sort_values(by="Days Left")
-    return df, historical_series_dict
+    return df, historical_data_frames
 
 df_live, raw_history = fetch_live_market_analytics()
 
@@ -171,12 +172,10 @@ with col3:
 with col4:
     st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
 
-# Main Interactive Data Grid Display
 st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
 st.caption("💡 **Tip:** Click the checkbox in the **'Select'** column to immediately extract the quantitative model rationale for that asset.")
 
 if not filtered_df.empty:
-    # Use data_editor to allow checking boxes
     edited_df = st.data_editor(
         filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         use_container_width=True,
@@ -184,11 +183,9 @@ if not filtered_df.empty:
         disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]
     )
     
-    # Identify which row the user checked
     selected_rows = edited_df[edited_df["Select"] == True]
     
     if not selected_rows.empty:
-        # Match the ticker back to get our text rationale
         chosen_ticker = selected_rows.iloc[0]["Ticker"]
         full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
         
@@ -204,7 +201,7 @@ else:
     st.info("Adjust configurations or sectors. No active catalysts match this specific filter timeframe.")
 
 # --------------------------------------------------------
-# 4. VISUAL ANALYSIS & HISTORICAL CHARTING DEEP-DIVE
+# 4. VISUAL ANALYSIS & ADVANCED CANDLESTICK CHARTING
 # --------------------------------------------------------
 st.write("---")
 st.write("### 🔍 Live Charting & Momentum Diagnostics")
@@ -213,21 +210,66 @@ if not filtered_df.empty:
     target_ticker = st.selectbox("Select an upcoming target ticker to map visual data trends:", filtered_df["Ticker"].unique())
     
     if target_ticker in raw_history:
-        chart_col, details_col = st.columns([2, 1])
+        # Extract full dataframe for chosen stock
+        stock_df = raw_history[target_ticker].copy()
+        current_price = stock_df['Close'].iloc[-1]
+        
+        chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            st.write(f"**Trailing 30-Day Historical Closing Price Trend for {target_ticker}**")
-            ticker_prices = raw_history[target_ticker]
-            st.line_chart(ticker_prices, y_label="Price ($)", x_label="Date File Node")
+            # Let the user change timeframe views just like Trading 212 (1 Month vs 3 Months)
+            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
+            cutoff_days = 22 if time_frame == "1 Month View" else 66
+            plot_df = stock_df.tail(cutoff_days)
+            
+            # Build the professional Candlestick figure
+            fig = go.Figure()
+            
+            # 1. Add Candles
+            fig.add_trace(go.Candlestick(
+                x=plot_df.index,
+                open=plot_df['Open'],
+                high=plot_df['High'],
+                low=plot_df['Low'],
+                close=plot_df['Close'],
+                name="Price Vector",
+                increasing_line_color='#26a69a', decreasing_line_color='#ef5350', # Pristine modern green/red
+                increasing_fill_color='#26a69a', decreasing_fill_color='#ef5350'
+            ))
+            
+            # 2. Add Horizontal Current Price tracking line (Trading 212 visual match)
+            fig.add_hline(
+                y=current_price, 
+                line_color="#2196f3", 
+                line_dash="solid",
+                line_width=1.5,
+                annotation_text=f"${round(current_price, 2)}",
+                annotation_position="right",
+                annotation_font=dict(color="white", size=12),
+                annotation_bgcolor="#2196f3"
+            )
+            
+            # Clean layout configurations
+            fig.update_layout(
+                height=450,
+                margin=dict(l=10, r=50, t=10, b=10),
+                xaxis_rangeslider_visible=False, # Hide messy bottom slider for clean aesthetic
+                paper_bgcolor="white",
+                plot_bgcolor="#fdfdfd",
+                yaxis=dict(side="right", gridcolor="#f0f0f0"),
+                xaxis=dict(gridcolor="#f0f0f0")
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
             
         with details_col:
             meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
-            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             st.metric(label="Last Live Market Close Price", value=meta["Last Close Price"])
             st.metric(label="14-Day Vector Run-up Trend", value=meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=meta["Expected Move %"])
 else:
-    st.write("Pipeline components completely cleared. No structural visual chart diagnostic metrics to present.")
+    st.write("Pipeline components completely cleared.")
 
 st.markdown("""
     <div class='footer'>
