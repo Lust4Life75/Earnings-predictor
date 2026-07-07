@@ -80,14 +80,18 @@ def generate_failover_history(base_price):
     df['Low'] = df[['Open', 'Close']].min(axis=1) * (1 - np.abs(np.random.normal(0, 0.008, size=66)))
     return df
 
-@st.cache_data(ttl=3600)  # Lower cache time slightly to catch unblocking windows
+@st.cache_data(ttl=3600)
 def fetch_live_market_analytics():
     today = datetime.date.today()
     live_records = []
     historical_data_frames = {}
     using_failover = False
     
-    # 1. Primary Live Attempt via yfinance
+    columns = ["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", 
+               "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
+               "Last Close Price", "Model Rationale Summary"]
+    
+    # Try grabbing live data
     for ticker, info in TICKER_DATABASE.items():
         try:
             stock = yf.Ticker(ticker)
@@ -103,12 +107,11 @@ def fetch_live_market_analytics():
                 firm_volatility_metric = pct_changes.std() * 100 * 2.2
                 empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
                 
-                # Assign to loop data array
                 live_records.append((ticker, info, price_today, actual_runup, empirical_expected_move))
         except Exception:
             continue
 
-    # 2. Failover Trigger: If yfinance blocked us completely, build pristine backup data modeling
+    # Failover trigger if live data fails
     if not live_records:
         using_failover = True
         for ticker, info in TICKER_DATABASE.items():
@@ -122,7 +125,6 @@ def fetch_live_market_analytics():
             
             live_records.append((ticker, info, price_today, actual_runup, empirical_expected_move))
 
-    # 3. Process records into the final Dataframe formatting
     processed_rows = []
     for ticker, info, price_today, actual_runup, empirical_expected_move in live_records:
         if actual_runup > 4.5:
@@ -259,18 +261,19 @@ if not filtered_df.empty:
             
             fig = go.Figure()
             
-# Formulate the candlestick shapes (Trading 212 Hex Codes)
-fig.add_trace(go.Candlestick(
-    x=plot_df.index,
-    open=plot_df['Open'],
-    high=plot_df['High'],
-    low=plot_df['Low'],
-    close=plot_df['Close'],
-    name="Price Vector",
-    increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
-    decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
-)) 
+            # Formulate the candlestick shapes
+            fig.add_trace(go.Candlestick(
+                x=plot_df.index,
+                open=plot_df['Open'],
+                high=plot_df['High'],
+                low=plot_df['Low'],
+                close=plot_df['Close'],
+                name="Price Vector",
+                increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
+                decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
+            ))
             
+            # Horizontal Target Banner Line
             fig.add_hline(
                 y=current_price, 
                 line_color="#2196f3", 
