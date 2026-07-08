@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. LIVE PRODUCTION DATA ENGINE & BACKUP SYSTEM
+# 2. LIVE PRODUCTION DATA ENGINE & UNIQUE BACKUP SYSTEM
 # --------------------------------------------------------
 
 TICKER_DATABASE = {
@@ -67,11 +67,14 @@ TICKER_DATABASE = {
     'DIS': {'name': 'Walt Disney Co.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 5.5, 'base_price': 110.0}
 }
 
-def generate_failover_history(base_price):
-    """Generates synthetic high-quality OHLC historical data if Yahoo blocks us"""
-    np.random.seed(42)
+def generate_failover_history(ticker, base_price):
+    """Generates synthetic high-quality unique OHLC data if Yahoo blocks us"""
+    # Create a unique random seed per ticker so stock charts look completely different
+    unique_seed = abs(hash(ticker)) % 10000
+    np.random.seed(unique_seed)
+    
     dates = pd.date_range(end=datetime.date.today(), periods=66, freq='B')
-    close_prices = base_price * (1 + np.random.normal(0.001, 0.015, size=66).cumsum())
+    close_prices = base_price * (1 + np.random.normal(0.001, 0.018, size=66).cumsum())
     
     df = pd.DataFrame(index=dates)
     df['Close'] = close_prices
@@ -91,7 +94,7 @@ def fetch_live_market_analytics():
                "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
                "Last Close Price", "Model Rationale Summary"]
     
-    # Try grabbing live data
+    # Attempt live download
     for ticker, info in TICKER_DATABASE.items():
         try:
             stock = yf.Ticker(ticker)
@@ -111,11 +114,11 @@ def fetch_live_market_analytics():
         except Exception:
             continue
 
-    # Failover trigger if live data fails
+    # Failover trigger if live data fails completely
     if not live_records:
         using_failover = True
         for ticker, info in TICKER_DATABASE.items():
-            hist = generate_failover_history(info['base_price'])
+            hist = generate_failover_history(ticker, info['base_price'])
             historical_data_frames[ticker] = hist
             
             price_today = hist['Close'].iloc[-1]
@@ -273,7 +276,7 @@ if not filtered_df.empty:
                 decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
             ))
             
-            # Horizontal Target Banner Line
+            # Horizontal Target Banner Line (Trading 212 Style Alignment)
             fig.add_hline(
                 y=current_price, 
                 line_color="#2196f3", 
