@@ -69,7 +69,6 @@ TICKER_DATABASE = {
 
 def generate_failover_history(ticker, base_price):
     """Generates synthetic high-quality unique OHLC data if Yahoo blocks us"""
-    # Create a unique random seed per ticker so stock charts look completely different
     unique_seed = abs(hash(ticker)) % 10000
     np.random.seed(unique_seed)
     
@@ -94,7 +93,6 @@ def fetch_live_market_analytics():
                "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
                "Last Close Price", "Model Rationale Summary"]
     
-    # Attempt live download
     for ticker, info in TICKER_DATABASE.items():
         try:
             stock = yf.Ticker(ticker)
@@ -114,7 +112,6 @@ def fetch_live_market_analytics():
         except Exception:
             continue
 
-    # Failover trigger if live data fails completely
     if not live_records:
         using_failover = True
         for ticker, info in TICKER_DATABASE.items():
@@ -243,7 +240,7 @@ else:
     st.info("Adjust configurations or sectors. No active catalysts match this specific filter timeframe.")
 
 # --------------------------------------------------------
-# 4. VISUAL ANALYSIS & ADVANCED CANDLESTICK CHARTING
+# 4. VISUAL ANALYSIS & ADVANCED CHART RENDERING SYSTEM
 # --------------------------------------------------------
 st.write("---")
 st.write("### 🔍 Live Charting & Momentum Diagnostics")
@@ -258,25 +255,40 @@ if not filtered_df.empty:
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
+            # Dual Parameter Alignment Columns for Range Controls & Visualization Style Toggle
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
+            with control_col2:
+                chart_type = st.radio("Visualization Framework Style:", ["Candlestick Chart", "Line Chart"], horizontal=True, label_visibility="collapsed")
+                
             cutoff_days = 22 if time_frame == "1 Month View" else 66
             plot_df = stock_df.tail(cutoff_days)
             
             fig = go.Figure()
             
-            # Formulate the candlestick shapes
-            fig.add_trace(go.Candlestick(
-                x=plot_df.index,
-                open=plot_df['Open'],
-                high=plot_df['High'],
-                low=plot_df['Low'],
-                close=plot_df['Close'],
-                name="Price Vector",
-                increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
-                decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
-            ))
+            # 1. Select and apply the appropriate drawing schema
+            if chart_type == "Candlestick Chart":
+                fig.add_trace(go.Candlestick(
+                    x=plot_df.index,
+                    open=plot_df['Open'],
+                    high=plot_df['High'],
+                    low=plot_df['Low'],
+                    close=plot_df['Close'],
+                    name="Price Vector",
+                    increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
+                    decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
+                ))
+            else:
+                fig.add_trace(go.Scatter(
+                    x=plot_df.index,
+                    y=plot_df['Close'],
+                    mode='lines',
+                    name='Closing Vector',
+                    line=dict(color='#2196f3', width=2.5)
+                ))
             
-            # Horizontal Target Banner Line (Trading 212 Style Alignment)
+            # 2. Horizontal Target Banner Line (Trading 212 Style Alignment)
             fig.add_hline(
                 y=current_price, 
                 line_color="#2196f3", 
