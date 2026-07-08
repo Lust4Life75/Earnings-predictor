@@ -73,7 +73,7 @@ TICKER_DATABASE = {
     'DIS': {'name': 'Walt Disney Co.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 5.5}
 }
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=60) # Short cache for interactive key-testing diagnostics
 def fetch_fmp_market_analytics():
     today = datetime.date.today()
     live_records = []
@@ -85,31 +85,43 @@ def fetch_fmp_market_analytics():
     
     for ticker, info in TICKER_DATABASE.items():
         try:
-            # Querying pristine historical OHLC prices from FMP API
             url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={API_KEY}"
-            response = requests.get(url, timeout=10).json()
+            res = requests.get(url, timeout=10)
             
-            if 'historical' not in response or len(response['historical']) < 15:
+            if res.status_code != 200:
+                st.error(f"📡 Network Error ({res.status_code}) on {ticker}. Check API Key privileges.")
+                continue
+                
+            response = res.json()
+            
+            # Catch authentic credential limits or invalid keys instantly
+            if "Error Message" in response:
+                st.error(f"⚠️ FMP API Key Refusal: {response['Error Message']}")
+                st.stop()
+            elif "error" in response:
+                st.error(f"⚠️ FMP API Error: {response['error']}")
+                st.stop()
+                
+            if 'historical' not in response or not response['historical']:
                 continue
                 
             # Parse structure to Pandas DataFrame
-            hist_list = response['historical'][:66] # Limit to 3 months
+            hist_list = response['historical']
             hist_df = pd.DataFrame(hist_list)
             hist_df['date'] = pd.to_datetime(hist_df['date'])
             hist_df.set_index('date', inplace=True)
-            hist_df = hist_df.sort_index(ascending=True) # Set time linear
+            hist_df = hist_df.sort_index(ascending=True) 
             
             historical_data_frames[ticker] = hist_df
             
             price_today = hist_df['close'].iloc[-1]
-            price_14d_ago = hist_df['close'].iloc[-14]
+            price_14d_ago = hist_df['close'].iloc[-14] if len(hist_df) >= 14 else hist_df['close'].iloc[0]
             actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
             
             pct_changes = hist_df['close'].pct_change().dropna()
-            firm_volatility_metric = pct_changes.std() * 100 * 2.2
+            firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
             empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
             
-            # Predictive Rule Engine Calculations
             if actual_runup > 4.5:
                 signal = "🔴 Bearish (Overbought Risk)"
                 confidence = 74
@@ -144,7 +156,8 @@ def fetch_fmp_market_analytics():
                 "Last Close Price": f"${round(price_today, 2)}",
                 "Model Rationale Summary": rationale
             })
-        except Exception:
+        except Exception as e:
+            st.warning(f"Engine parsing bypass on {ticker}: {str(e)}")
             continue
             
     df = pd.DataFrame(live_records)
@@ -224,7 +237,7 @@ if not filtered_df.empty:
             </div>
         """, unsafe_allow_html=True)
 else:
-    st.error("⚠️ Network Feed Status: Secure data stream disconnected or undergoing maintenance. Live matrix will re-establish shortly.")
+    st.warning("⚠️ Data Stream Empty: No matching stock data returned from backend endpoints.")
 
 # --------------------------------------------------------
 # 4. VISUAL ANALYSIS & ADVANCED CHART RENDERING SYSTEM
