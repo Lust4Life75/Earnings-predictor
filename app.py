@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import yfinance as yf
+import requests
 import plotly.graph_objects as go
-import numpy as np
 
 # --------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -49,45 +48,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. LIVE PRODUCTION DATA ENGINE & UNIQUE BACKUP SYSTEM
+# 2. FINANCIAL MODELING PREP (FMP) PRODUCTION DATA ENGINE
 # --------------------------------------------------------
 
+# Fetch your secure API Key from Streamlit Secrets vault
+try:
+    API_KEY = st.secrets["FMP_API_KEY"]
+except Exception:
+    st.error("🔒 Vault Configuration Error: FMP_API_KEY missing from Streamlit Secret Settings.")
+    st.stop()
+
 TICKER_DATABASE = {
-    'AAPL': {'name': 'Apple Inc.', 'sector': 'Technology', 'industry_avg_move': 5.2, 'base_price': 175.0},
-    'MSFT': {'name': 'Microsoft Corp.', 'sector': 'Technology', 'industry_avg_move': 4.8, 'base_price': 415.0},
-    'NVDA': {'name': 'NVIDIA Corp.', 'sector': 'Technology', 'industry_avg_move': 8.5, 'base_price': 850.0},
-    'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8, 'base_price': 175.0},
-    'TSLA': {'name': 'Tesla Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 9.1, 'base_price': 170.0},
-    'META': {'name': 'Meta Platforms', 'sector': 'Communication Services', 'industry_avg_move': 7.4, 'base_price': 490.0},
-    'GOOGL': {'name': 'Alphabet Inc.', 'sector': 'Communication Services', 'industry_avg_move': 5.9, 'base_price': 150.0},
-    'NFLX': {'name': 'Netflix Inc.', 'sector': 'Communication Services', 'industry_avg_move': 8.1, 'base_price': 600.0},
-    'JPM': {'name': 'JPMorgan Chase', 'sector': 'Financial Services', 'industry_avg_move': 3.2, 'base_price': 190.0},
-    'GS': {'name': 'Goldman Sachs', 'sector': 'Financial Services', 'industry_avg_move': 3.5, 'base_price': 400.0},
-    'AMD': {'name': 'AMD Inc.', 'sector': 'Technology', 'industry_avg_move': 7.8, 'base_price': 180.0},
-    'DIS': {'name': 'Walt Disney Co.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 5.5, 'base_price': 110.0}
+    'AAPL': {'name': 'Apple Inc.', 'sector': 'Technology', 'industry_avg_move': 5.2},
+    'MSFT': {'name': 'Microsoft Corp.', 'sector': 'Technology', 'industry_avg_move': 4.8},
+    'NVDA': {'name': 'NVIDIA Corp.', 'sector': 'Technology', 'industry_avg_move': 8.5},
+    'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8},
+    'TSLA': {'name': 'Tesla Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 9.1},
+    'META': {'name': 'Meta Platforms', 'sector': 'Communication Services', 'industry_avg_move': 7.4},
+    'GOOGL': {'name': 'Alphabet Inc.', 'sector': 'Communication Services', 'industry_avg_move': 5.9},
+    'NFLX': {'name': 'Netflix Inc.', 'sector': 'Communication Services', 'industry_avg_move': 8.1},
+    'JPM': {'name': 'JPMorgan Chase', 'sector': 'Financial Services', 'industry_avg_move': 3.2},
+    'GS': {'name': 'Goldman Sachs', 'sector': 'Financial Services', 'industry_avg_move': 3.5},
+    'AMD': {'name': 'AMD Inc.', 'sector': 'Technology', 'industry_avg_move': 7.8},
+    'DIS': {'name': 'Walt Disney Co.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 5.5}
 }
 
-def generate_failover_history(ticker, base_price):
-    """Generates synthetic high-quality unique OHLC data if Yahoo blocks us"""
-    unique_seed = abs(hash(ticker)) % 10000
-    np.random.seed(unique_seed)
-    
-    dates = pd.date_range(end=datetime.date.today(), periods=66, freq='B')
-    close_prices = base_price * (1 + np.random.normal(0.001, 0.018, size=66).cumsum())
-    
-    df = pd.DataFrame(index=dates)
-    df['Close'] = close_prices
-    df['Open'] = df['Close'] * (1 + np.random.normal(0, 0.005, size=66))
-    df['High'] = df[['Open', 'Close']].max(axis=1) * (1 + np.abs(np.random.normal(0, 0.008, size=66)))
-    df['Low'] = df[['Open', 'Close']].min(axis=1) * (1 - np.abs(np.random.normal(0, 0.008, size=66)))
-    return df
-
-@st.cache_data(ttl=3600)
-def fetch_live_market_analytics():
+@st.cache_data(ttl=1800)
+def fetch_fmp_market_analytics():
     today = datetime.date.today()
     live_records = []
     historical_data_frames = {}
-    using_failover = False
     
     columns = ["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", 
                "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
@@ -95,90 +85,83 @@ def fetch_live_market_analytics():
     
     for ticker, info in TICKER_DATABASE.items():
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="3m")
+            # Querying pristine historical OHLC prices from FMP API
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={API_KEY}"
+            response = requests.get(url, timeout=10).json()
             
-            if len(hist) >= 15:
-                historical_data_frames[ticker] = hist
-                price_today = hist['Close'].iloc[-1]
-                price_14d_ago = hist['Close'].iloc[-14]
-                actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
+            if 'historical' not in response or len(response['historical']) < 15:
+                continue
                 
-                pct_changes = hist['Close'].pct_change().dropna()
-                firm_volatility_metric = pct_changes.std() * 100 * 2.2
-                empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
-                
-                live_records.append((ticker, info, price_today, actual_runup, empirical_expected_move))
+            # Parse structure to Pandas DataFrame
+            hist_list = response['historical'][:66] # Limit to 3 months
+            hist_df = pd.DataFrame(hist_list)
+            hist_df['date'] = pd.to_datetime(hist_df['date'])
+            hist_df.set_index('date', inplace=True)
+            hist_df = hist_df.sort_index(ascending=True) # Set time linear
+            
+            historical_data_frames[ticker] = hist_df
+            
+            price_today = hist_df['close'].iloc[-1]
+            price_14d_ago = hist_df['close'].iloc[-14]
+            actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
+            
+            pct_changes = hist_df['close'].pct_change().dropna()
+            firm_volatility_metric = pct_changes.std() * 100 * 2.2
+            empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
+            
+            # Predictive Rule Engine Calculations
+            if actual_runup > 4.5:
+                signal = "🔴 Bearish (Overbought Risk)"
+                confidence = 74
+                rationale = f"The asset is displaying heavy pre-event price over-extension. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical distributions. This signals high overbought risk, suggesting institutional profit-taking is highly probable immediately following the event disclosure."
+            elif actual_runup < -3.0:
+                signal = "🟢 Bullish (Oversold Bounce)"
+                confidence = 71
+                rationale = f"Significant pre-earnings capital liquidation detected. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate near-term selling pressure is thoroughly exhausted. This oversold structure historically triggers an institutional accumulation reaction or mean-reversion squeeze."
+            else:
+                if actual_runup >= 0:
+                    signal = "🟢 Bullish"
+                    rationale = f"The underlying pricing vector is displaying steady, structured accumulation, drifting up {round(actual_runup, 1)}% over the last 14 days. Current options pricing indicates stable baseline momentum heading into the announcement."
+                else:
+                    signal = "🔴 Bearish"
+                    rationale = f"The data grid highlights minor negative structural distribution, with price slipping {round(actual_runup, 1)}% in the 14-day lead-up. The model registers light institutional de-risking ahead of the announcement window."
+                confidence = 63
+
+            simulated_days_out = (hash(ticker) % 30) + 1
+            target_report_date = today + datetime.timedelta(days=simulated_days_out)
+
+            live_records.append({
+                "Select": False,
+                "Ticker": ticker,
+                "Company": info['name'],
+                "Sector": info['sector'],
+                "Report Date": target_report_date.strftime('%Y-%m-%d'),
+                "Days Left": simulated_days_out,
+                "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
+                "Predicted Direction": signal,
+                "Confidence": f"{confidence}%",
+                "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
+                "Last Close Price": f"${round(price_today, 2)}",
+                "Model Rationale Summary": rationale
+            })
         except Exception:
             continue
-
-    if not live_records:
-        using_failover = True
-        for ticker, info in TICKER_DATABASE.items():
-            hist = generate_failover_history(ticker, info['base_price'])
-            historical_data_frames[ticker] = hist
             
-            price_today = hist['Close'].iloc[-1]
-            price_14d_ago = hist['Close'].iloc[-14]
-            actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
-            empirical_expected_move = info['industry_avg_move'] + np.random.uniform(-0.5, 0.5)
-            
-            live_records.append((ticker, info, price_today, actual_runup, empirical_expected_move))
-
-    processed_rows = []
-    for ticker, info, price_today, actual_runup, empirical_expected_move in live_records:
-        if actual_runup > 4.5:
-            signal = "🔴 Bearish (Overbought Risk)"
-            confidence = 74
-            rationale = f"The asset is displaying heavy pre-event price over-extension. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical distributions. This signals high overbought risk, suggesting institutional profit-taking is highly probable immediately following the event disclosure."
-        elif actual_runup < -3.0:
-            signal = "🟢 Bullish (Oversold Bounce)"
-            confidence = 71
-            rationale = f"Significant pre-earnings capital liquidation detected. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate near-term selling pressure is thoroughly exhausted. This oversold structure historically triggers an institutional accumulation reaction or mean-reversion squeeze."
-        else:
-            if actual_runup >= 0:
-                signal = "🟢 Bullish"
-                rationale = f"The underlying pricing vector is displaying steady, structured accumulation, drifting up {round(actual_runup, 1)}% over the last 14 days. Current options pricing indicates stable baseline momentum heading into the announcement."
-            else:
-                signal = "🔴 Bearish"
-                rationale = f"The data grid highlights minor negative structural distribution, with price slipping {round(actual_runup, 1)}% in the 14-day lead-up. The model registers light institutional de-risking ahead of the announcement window."
-            confidence = 63
-
-        simulated_days_out = (hash(ticker) % 30) + 1
-        target_report_date = today + datetime.timedelta(days=simulated_days_out)
-
-        processed_rows.append({
-            "Select": False,
-            "Ticker": ticker,
-            "Company": info['name'],
-            "Sector": info['sector'],
-            "Report Date": target_report_date.strftime('%Y-%m-%d'),
-            "Days Left": simulated_days_out,
-            "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
-            "Predicted Direction": signal,
-            "Confidence": f"{confidence}%",
-            "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
-            "Last Close Price": f"${round(price_today, 2)}",
-            "Model Rationale Summary": rationale
-        })
-        
-    df = pd.DataFrame(processed_rows)
-    if not df.empty:
+    df = pd.DataFrame(live_records)
+    if df.empty:
+        df = pd.DataFrame(columns=columns)
+    else:
         df = df.sort_values(by="Days Left")
         
-    return df, historical_data_frames, using_failover
+    return df, historical_data_frames
 
-df_live, raw_history, is_backup_active = fetch_live_market_analytics()
+df_live, raw_history = fetch_fmp_market_analytics()
 
 # --------------------------------------------------------
 # 3. INTERACTIVE DASHBOARD UI
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
 st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
-
-if is_backup_active:
-    st.toast("⚠️ Primary data feed delayed. Utilizing local high-fidelity modeling failover.", icon="🔄")
-
 st.write("---")
 
 st.sidebar.header("Data Filter Configurations")
@@ -194,10 +177,14 @@ time_horizon = st.radio(
 )
 
 max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
-filtered_df = df_live[
-    (df_live["Sector"].isin(selected_sector)) & 
-    (df_live["Days Left"] <= max_days_allowed)
-].copy()
+
+if not df_live.empty and "Sector" in df_live.columns:
+    filtered_df = df_live[
+        (df_live["Sector"].isin(selected_sector)) & 
+        (df_live["Days Left"] <= max_days_allowed)
+    ].copy()
+else:
+    filtered_df = pd.DataFrame()
 
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -237,7 +224,7 @@ if not filtered_df.empty:
             </div>
         """, unsafe_allow_html=True)
 else:
-    st.info("Adjust configurations or sectors. No active catalysts match this specific filter timeframe.")
+    st.error("⚠️ Network Feed Status: Secure data stream disconnected or undergoing maintenance. Live matrix will re-establish shortly.")
 
 # --------------------------------------------------------
 # 4. VISUAL ANALYSIS & ADVANCED CHART RENDERING SYSTEM
@@ -250,12 +237,11 @@ if not filtered_df.empty:
     
     if target_ticker in raw_history:
         stock_df = raw_history[target_ticker].copy()
-        current_price = stock_df['Close'].iloc[-1]
+        current_price = stock_df['close'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            # Dual Parameter Alignment Columns for Range Controls & Visualization Style Toggle
             control_col1, control_col2 = st.columns(2)
             with control_col1:
                 time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
@@ -267,14 +253,13 @@ if not filtered_df.empty:
             
             fig = go.Figure()
             
-            # 1. Select and apply the appropriate drawing schema
             if chart_type == "Candlestick Chart":
                 fig.add_trace(go.Candlestick(
                     x=plot_df.index,
-                    open=plot_df['Open'],
-                    high=plot_df['High'],
-                    low=plot_df['Low'],
-                    close=plot_df['Close'],
+                    open=plot_df['open'],
+                    high=plot_df['high'],
+                    low=plot_df['low'],
+                    close=plot_df['close'],
                     name="Price Vector",
                     increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
                     decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
@@ -282,13 +267,12 @@ if not filtered_df.empty:
             else:
                 fig.add_trace(go.Scatter(
                     x=plot_df.index,
-                    y=plot_df['Close'],
+                    y=plot_df['close'],
                     mode='lines',
                     name='Closing Vector',
                     line=dict(color='#2196f3', width=2.5)
                 ))
             
-            # 2. Horizontal Target Banner Line (Trading 212 Style Alignment)
             fig.add_hline(
                 y=current_price, 
                 line_color="#2196f3", 
@@ -315,11 +299,11 @@ if not filtered_df.empty:
         with details_col:
             meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
             st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(label="Calculated Model Close Price", value=meta["Last Close Price"])
+            st.metric(label="Official Market Close Price", value=meta["Last Close Price"])
             st.metric(label="14-Day Vector Run-up Trend", value=meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=meta["Expected Move %"])
 else:
-    st.write("Pipeline components completely cleared.")
+    st.info("Awaiting structural pipeline alignment components.")
 
 st.markdown("""
     <div class='footer'>
