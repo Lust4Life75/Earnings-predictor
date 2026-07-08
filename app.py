@@ -48,34 +48,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. FINANCIAL MODELING PREP (FMP) PRODUCTION DATA ENGINE
+# 2. POLYGON.IO FREE-TIER PRODUCTION DATA ENGINE
 # --------------------------------------------------------
-
-# Fetch your secure API Key from Streamlit Secrets vault
 try:
-    API_KEY = st.secrets["FMP_API_KEY"]
+    API_KEY = st.secrets["POLYGON_API_KEY"]
 except Exception:
-    st.error("🔒 Vault Configuration Error: FMP_API_KEY missing from Streamlit Secret Settings.")
+    st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
+# Curated core database to keep requests under the 5 calls/min limit for the free tier
 TICKER_DATABASE = {
     'AAPL': {'name': 'Apple Inc.', 'sector': 'Technology', 'industry_avg_move': 5.2},
     'MSFT': {'name': 'Microsoft Corp.', 'sector': 'Technology', 'industry_avg_move': 4.8},
     'NVDA': {'name': 'NVIDIA Corp.', 'sector': 'Technology', 'industry_avg_move': 8.5},
-    'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8},
-    'TSLA': {'name': 'Tesla Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 9.1},
-    'META': {'name': 'Meta Platforms', 'sector': 'Communication Services', 'industry_avg_move': 7.4},
-    'GOOGL': {'name': 'Alphabet Inc.', 'sector': 'Communication Services', 'industry_avg_move': 5.9},
-    'NFLX': {'name': 'Netflix Inc.', 'sector': 'Communication Services', 'industry_avg_move': 8.1},
-    'JPM': {'name': 'JPMorgan Chase', 'sector': 'Financial Services', 'industry_avg_move': 3.2},
-    'GS': {'name': 'Goldman Sachs', 'sector': 'Financial Services', 'industry_avg_move': 3.5},
-    'AMD': {'name': 'AMD Inc.', 'sector': 'Technology', 'industry_avg_move': 7.8},
-    'DIS': {'name': 'Walt Disney Co.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 5.5}
+    'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8}
 }
 
-@st.cache_data(ttl=60) # Short cache for interactive key-testing diagnostics
-def fetch_fmp_market_analytics():
+@st.cache_data(ttl=3600)
+def fetch_polygon_market_analytics():
     today = datetime.date.today()
+    # Calculate a 3-month lookback window for historical data structures
+    start_date = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+    end_date = today.strftime('%Y-%m-%d')
+    
     live_records = []
     historical_data_frames = {}
     
@@ -85,40 +80,33 @@ def fetch_fmp_market_analytics():
     
     for ticker, info in TICKER_DATABASE.items():
         try:
-            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={API_KEY}"
+            # Querying pristine historical daily bars from Polygon.io API
+            url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
             res = requests.get(url, timeout=10)
             
-            if res.status_code != 200:
-                st.error(f"📡 Network Error ({res.status_code}) on {ticker}. Check API Key privileges.")
+            if res.status_code == 429:
+                st.error("⏱️ Polygon Free Tier limit hit (5 calls/min). Please wait 60 seconds before resetting.")
+                break
+            elif res.status_code != 200:
                 continue
                 
             response = res.json()
-            
-            # Catch authentic credential limits or invalid keys instantly
-            if "Error Message" in response:
-                st.error(f"⚠️ FMP API Key Refusal: {response['Error Message']}")
-                st.stop()
-            elif "error" in response:
-                st.error(f"⚠️ FMP API Error: {response['error']}")
-                st.stop()
-                
-            if 'historical' not in response or not response['historical']:
+            if 'results' not in response or not response['results']:
                 continue
                 
-            # Parse structure to Pandas DataFrame
-            hist_list = response['historical']
+            # Parse Polygon OHLC results mapping: o=open, h=high, l=low, c=close, t=timestamp
+            hist_list = response['results']
             hist_df = pd.DataFrame(hist_list)
-            hist_df['date'] = pd.to_datetime(hist_df['date'])
+            hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
             hist_df.set_index('date', inplace=True)
-            hist_df = hist_df.sort_index(ascending=True) 
             
             historical_data_frames[ticker] = hist_df
             
-            price_today = hist_df['close'].iloc[-1]
-            price_14d_ago = hist_df['close'].iloc[-14] if len(hist_df) >= 14 else hist_df['close'].iloc[0]
+            price_today = hist_df['c'].iloc[-1]
+            price_14d_ago = hist_df['c'].iloc[-14] if len(hist_df) >= 14 else hist_df['c'].iloc[0]
             actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
             
-            pct_changes = hist_df['close'].pct_change().dropna()
+            pct_changes = hist_df['c'].pct_change().dropna()
             firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
             empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
             
@@ -156,8 +144,7 @@ def fetch_fmp_market_analytics():
                 "Last Close Price": f"${round(price_today, 2)}",
                 "Model Rationale Summary": rationale
             })
-        except Exception as e:
-            st.warning(f"Engine parsing bypass on {ticker}: {str(e)}")
+        except Exception:
             continue
             
     df = pd.DataFrame(live_records)
@@ -168,7 +155,7 @@ def fetch_fmp_market_analytics():
         
     return df, historical_data_frames
 
-df_live, raw_history = fetch_fmp_market_analytics()
+df_live, raw_history = fetch_polygon_market_analytics()
 
 # --------------------------------------------------------
 # 3. INTERACTIVE DASHBOARD UI
@@ -237,7 +224,7 @@ if not filtered_df.empty:
             </div>
         """, unsafe_allow_html=True)
 else:
-    st.warning("⚠️ Data Stream Empty: No matching stock data returned from backend endpoints.")
+    st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
 
 # --------------------------------------------------------
 # 4. VISUAL ANALYSIS & ADVANCED CHART RENDERING SYSTEM
@@ -250,7 +237,7 @@ if not filtered_df.empty:
     
     if target_ticker in raw_history:
         stock_df = raw_history[target_ticker].copy()
-        current_price = stock_df['close'].iloc[-1]
+        current_price = stock_df['c'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
         
@@ -269,10 +256,10 @@ if not filtered_df.empty:
             if chart_type == "Candlestick Chart":
                 fig.add_trace(go.Candlestick(
                     x=plot_df.index,
-                    open=plot_df['open'],
-                    high=plot_df['high'],
-                    low=plot_df['low'],
-                    close=plot_df['close'],
+                    open=plot_df['o'],
+                    high=plot_df['h'],
+                    low=plot_df['l'],
+                    close=plot_df['c'],
                     name="Price Vector",
                     increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
                     decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
@@ -280,7 +267,7 @@ if not filtered_df.empty:
             else:
                 fig.add_trace(go.Scatter(
                     x=plot_df.index,
-                    y=plot_df['close'],
+                    y=plot_df['c'],
                     mode='lines',
                     name='Closing Vector',
                     line=dict(color='#2196f3', width=2.5)
@@ -316,7 +303,7 @@ if not filtered_df.empty:
             st.metric(label="14-Day Vector Run-up Trend", value=meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=meta["Expected Move %"])
 else:
-    st.info("Awaiting structural pipeline alignment components.")
+    st.info("Awaiting structural pipeline data streams.")
 
 st.markdown("""
     <div class='footer'>
