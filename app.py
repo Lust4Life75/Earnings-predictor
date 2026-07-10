@@ -155,14 +155,12 @@ def fetch_live_snapshot_price(ticker):
     """Queries Polygon's modern v3 Snapshot API to grab live trades, 
     falling back to recent session close metrics if the market is closed over the weekend."""
     try:
-        # 1. Swapped to the correct single ticker v3 endpoint
         url = f"https://api.polygon.io/v3/snapshot/ticker/{ticker}?apiKey={API_KEY}"
         res = requests.get(url, timeout=5)
         
         if res.status_code == 200:
             data = res.json()
             
-            # 2. Polygon v3 wraps the metadata payload inside the 'results' key
             if 'results' in data:
                 tick_meta = data['results']
                 
@@ -264,7 +262,7 @@ if not filtered_df.empty:
     if target_ticker in raw_history:
         stock_df = raw_history[target_ticker].copy()
         
-        # Pull live stream pricing ticker over snapshot
+        # Pull latest metric layers
         live_price = fetch_live_snapshot_price(target_ticker)
         current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
         
