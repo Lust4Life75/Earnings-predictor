@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import datetime
 import requests
-import plotly.graph_objects as go
 
 # --------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -222,7 +221,6 @@ st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
 st.caption("💡 **Tip:** Click the checkbox in the **'Select'** column to immediately extract the quantitative model rationale for that asset.")
 
 if not filtered_df.empty:
-    # 🌟 FIXED: Changed use_container_width=True to width="stretch" here
     edited_df = st.data_editor(
         filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         width="stretch",
@@ -261,7 +259,7 @@ else:
     st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
 
 # --------------------------------------------------------
-# 4. VISUAL ANALYSIS & ADVANCED CHART RENDERING SYSTEM
+# 4. VISUAL ANALYSIS & STABLE CHART RENDERING SYSTEM
 # --------------------------------------------------------
 st.write("---")
 st.write("### 🔍 Live Charting & Momentum Diagnostics")
@@ -278,60 +276,17 @@ if not filtered_df.empty:
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            control_col1, control_col2 = st.columns(2)
-            with control_col1:
-                time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
-            with control_col2:
-                chart_type = st.radio("Visualization Framework Style:", ["Candlestick Chart", "Line Chart"], horizontal=True, label_visibility="collapsed")
+            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
                 
             cutoff_days = 22 if time_frame == "1 Month View" else 66
-            plot_df = stock_df.tail(cutoff_days)
+            plot_df = stock_df.tail(cutoff_days).copy()
             
-            fig = go.Figure()
+            # Format the layout table cleanly to pipe directly into the stable native engine
+            chart_data = pd.DataFrame(plot_df['c'])
+            chart_data.columns = ['Historical Close Vector']
             
-            if chart_type == "Candlestick Chart":
-                fig.add_trace(go.Candlestick(
-                    x=plot_df.index,
-                    open=plot_df['o'],
-                    high=plot_df['h'],
-                    low=plot_df['l'],
-                    close=plot_df['c'],
-                    name="Price Vector",
-                    increasing=dict(line=dict(color='#26a69a'), fillcolor='#26a69a'),
-                    decreasing=dict(line=dict(color='#ef5350'), fillcolor='#ef5350')
-                ))
-            else:
-                fig.add_trace(go.Scatter(
-                    x=plot_df.index,
-                    y=plot_df['c'],
-                    mode='lines',
-                    name='Closing Vector',
-                    line=dict(color='#2196f3', width=2.5)
-                ))
-            
-            fig.add_hline(
-                y=current_price, 
-                line_color="#26a69a" if live_price else "#2196f3", 
-                line_dash="solid",
-                line_width=2.0,
-                annotation_text=f"LIVE: ${round(current_price, 2)}" if live_price else f"${round(current_price, 2)}",
-                annotation_position="right",
-                annotation_font=dict(color="white", size=12),
-                annotation_bgcolor="#26a69a" if live_price else "#2196f3"
-            )
-            
-            fig.update_layout(
-                height=450,
-                margin=dict(l=10, r=50, t=10, b=10),
-                xaxis_rangeslider_visible=False,
-                paper_bgcolor="white",
-                plot_bgcolor="#fdfdfd",
-                yaxis=dict(side="right", gridcolor="#f0f0f0"),
-                xaxis=dict(gridcolor="#f0f0f0")
-            )
-            
-            # 🌟 FIXED: Added width="stretch" and explicit config safety parameters to stop the segmentation fault
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            # Render via native high-speed engine
+            st.line_chart(chart_data, width="stretch")
             
         with details_col:
             meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
