@@ -56,7 +56,6 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-# Curated core database to keep requests under the 5 calls/min limit for the free tier
 TICKER_DATABASE = {
     'AAPL': {'name': 'Apple Inc.', 'sector': 'Technology', 'industry_avg_move': 5.2},
     'MSFT': {'name': 'Microsoft Corp.', 'sector': 'Technology', 'industry_avg_move': 4.8},
@@ -67,7 +66,6 @@ TICKER_DATABASE = {
 @st.cache_data(ttl=3600)
 def fetch_polygon_market_analytics():
     today = datetime.date.today()
-    # Calculate a 3-month lookback window for historical data structures
     start_date = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
     
@@ -80,7 +78,6 @@ def fetch_polygon_market_analytics():
     
     for ticker, info in TICKER_DATABASE.items():
         try:
-            # Querying pristine historical daily bars from Polygon.io API
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
             res = requests.get(url, timeout=10)
             
@@ -94,7 +91,6 @@ def fetch_polygon_market_analytics():
             if 'results' not in response or not response['results']:
                 continue
                 
-            # Parse Polygon OHLC results mapping: o=open, h=high, l=low, c=close, t=timestamp
             hist_list = response['results']
             hist_df = pd.DataFrame(hist_list)
             hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
@@ -154,6 +150,19 @@ def fetch_polygon_market_analytics():
         df = df.sort_values(by="Days Left")
         
     return df, historical_data_frames
+
+def fetch_live_snapshot_price(ticker):
+    """Queries Polygon's Real-Time Snapshot API to grab up-to-the-second market pricing"""
+    try:
+        url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={API_KEY}"
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if 'ticker' in data and 'lastTrade' in data['ticker']:
+                return data['ticker']['lastTrade']['p'] # Returns precise execution price
+    except Exception:
+        pass
+    return None
 
 df_live, raw_history = fetch_polygon_market_analytics()
 
@@ -237,7 +246,10 @@ if not filtered_df.empty:
     
     if target_ticker in raw_history:
         stock_df = raw_history[target_ticker].copy()
-        current_price = stock_df['c'].iloc[-1]
+        
+        # Pull live stream pricing ticker over snapshot
+        live_price = fetch_live_snapshot_price(target_ticker)
+        current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
         
@@ -275,13 +287,13 @@ if not filtered_df.empty:
             
             fig.add_hline(
                 y=current_price, 
-                line_color="#2196f3", 
+                line_color="#26a69a" if live_price else "#2196f3", 
                 line_dash="solid",
-                line_width=1.5,
-                annotation_text=f"${round(current_price, 2)}",
+                line_width=2.0,
+                annotation_text=f"LIVE: ${round(current_price, 2)}" if live_price else f"${round(current_price, 2)}",
                 annotation_position="right",
                 annotation_font=dict(color="white", size=12),
-                annotation_bgcolor="#2196f3"
+                annotation_bgcolor="#26a69a" if live_price else "#2196f3"
             )
             
             fig.update_layout(
@@ -299,7 +311,10 @@ if not filtered_df.empty:
         with details_col:
             meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
             st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(label="Official Market Close Price", value=meta["Last Close Price"])
+            st.metric(
+                label="Streaming Execution Price" if live_price else "Official Market Close Price", 
+                value=f"${round(current_price, 2)}"
+            )
             st.metric(label="14-Day Vector Run-up Trend", value=meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=meta["Expected Move %"])
 else:
