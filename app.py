@@ -62,7 +62,6 @@ TICKER_DATABASE = {
     'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8}
 }
 
-@st.cache_data(ttl=3600)
 def fetch_polygon_market_analytics():
     today = datetime.date.today()
     start_date = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
