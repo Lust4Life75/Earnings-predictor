@@ -152,22 +152,31 @@ def fetch_polygon_market_analytics():
     return df, historical_data_frames
 
 def fetch_live_snapshot_price(ticker):
-    """Queries Polygon's Snapshot API to grab live trades, falling back to recent closing ticks if the market is closed"""
+    """Queries Polygon's modern v3 Snapshot API to grab live trades, 
+    falling back to recent session close metrics if the market is closed over the weekend."""
     try:
-        url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={API_KEY}"
+        # 1. Swapped to the correct single ticker v3 endpoint
+        url = f"https://api.polygon.io/v3/snapshot/ticker/{ticker}?apiKey={API_KEY}"
         res = requests.get(url, timeout=5)
+        
         if res.status_code == 200:
             data = res.json()
-            if 'ticker' in data:
-                tick_meta = data['ticker']
-                # 1. Try pulling live session execution trades first
-                if 'lastTrade' in tick_meta and 'p' in tick_meta['lastTrade']:
-                    return tick_meta['lastTrade']['p']
-                # 2. Weekend failover: Extract the most recent market day's official session value
-                elif 'day' in tick_meta and 'c' in tick_meta['day']:
-                    return tick_meta['day']['c']
-                elif 'prevDay' in tick_meta and 'c' in tick_meta['prevDay']:
-                    return tick_meta['prevDay']['c']
+            
+            # 2. Polygon v3 wraps the metadata payload inside the 'results' key
+            if 'results' in data:
+                tick_meta = data['results']
+                
+                # Check live regular trading session trade executions first
+                if 'last_trade' in tick_meta and 'price' in tick_meta['last_trade']:
+                    return tick_meta['last_trade']['price']
+                
+                # Regular session closing/current day pricing structural fallback
+                elif 'session' in tick_meta and 'close' in tick_meta['session']:
+                    return tick_meta['session']['close']
+                    
+                # Extended hours/last daily block fallback mechanisms
+                elif 'day' in tick_meta and 'close' in tick_meta['day']:
+                    return tick_meta['day']['close']
     except Exception:
         pass
     return None
