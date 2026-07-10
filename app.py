@@ -230,7 +230,21 @@ if not filtered_df.empty:
         filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         use_container_width=True,
         hide_index=True,
-        disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]
+        disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
+        # This section below adds the professional styling rules!
+        column_config={
+            "Confidence": st.column_config.ProgressColumn(
+                "Model Confidence",
+                help="The algorithmic calculation certainty index",
+                format="%s",
+                min_value=0,
+                max_value=100,
+            ),
+            "Days Left": st.column_config.NumberColumn(
+                "Days Left",
+                format="%d days"
+            )
+        }
     )
     
     selected_rows = edited_df[edited_df["Select"] == True]
