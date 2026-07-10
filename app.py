@@ -152,14 +152,22 @@ def fetch_polygon_market_analytics():
     return df, historical_data_frames
 
 def fetch_live_snapshot_price(ticker):
-    """Queries Polygon's Real-Time Snapshot API to grab up-to-the-second market pricing"""
+    """Queries Polygon's Snapshot API to grab live trades, falling back to recent closing ticks if the market is closed"""
     try:
         url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={API_KEY}"
         res = requests.get(url, timeout=5)
         if res.status_code == 200:
             data = res.json()
-            if 'ticker' in data and 'lastTrade' in data['ticker']:
-                return data['ticker']['lastTrade']['p'] # Returns precise execution price
+            if 'ticker' in data:
+                tick_meta = data['ticker']
+                # 1. Try pulling live session execution trades first
+                if 'lastTrade' in tick_meta and 'p' in tick_meta['lastTrade']:
+                    return tick_meta['lastTrade']['p']
+                # 2. Weekend failover: Extract the most recent market day's official session value
+                elif 'day' in tick_meta and 'c' in tick_meta['day']:
+                    return tick_meta['day']['c']
+                elif 'prevDay' in tick_meta and 'c' in tick_meta['prevDay']:
+                    return tick_meta['prevDay']['c']
     except Exception:
         pass
     return None
