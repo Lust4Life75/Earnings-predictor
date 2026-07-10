@@ -126,7 +126,6 @@ def fetch_polygon_market_analytics():
             simulated_days_out = (hash(ticker) % 30) + 1
             target_report_date = today + datetime.timedelta(days=simulated_days_out)
 
-            # Strip string formatting from raw confidence number for the visual slider
             live_records.append({
                 "Select": False,
                 "Ticker": ticker,
@@ -223,9 +222,10 @@ st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
 st.caption("💡 **Tip:** Click the checkbox in the **'Select'** column to immediately extract the quantitative model rationale for that asset.")
 
 if not filtered_df.empty:
+    # 🌟 FIXED: Changed use_container_width=True to width="stretch" here
     edited_df = st.data_editor(
         filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
         column_config={
@@ -330,7 +330,8 @@ if not filtered_df.empty:
                 xaxis=dict(gridcolor="#f0f0f0")
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            # 🌟 FIXED: Added width="stretch" and explicit config safety parameters to stop the segmentation fault
+            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
             
         with details_col:
             meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
