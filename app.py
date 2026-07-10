@@ -126,6 +126,7 @@ def fetch_polygon_market_analytics():
             simulated_days_out = (hash(ticker) % 30) + 1
             target_report_date = today + datetime.timedelta(days=simulated_days_out)
 
+            # Strip string formatting from raw confidence number for the visual slider
             live_records.append({
                 "Select": False,
                 "Ticker": ticker,
@@ -135,7 +136,7 @@ def fetch_polygon_market_analytics():
                 "Days Left": simulated_days_out,
                 "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
                 "Predicted Direction": signal,
-                "Confidence": f"{confidence}%",
+                "Confidence": confidence, 
                 "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
                 "Last Close Price": f"${round(price_today, 2)}",
                 "Model Rationale Summary": rationale
@@ -151,6 +152,7 @@ def fetch_polygon_market_analytics():
         
     return df, historical_data_frames
 
+@st.cache_data(ttl=60)
 def fetch_live_snapshot_price(ticker):
     """Queries Polygon's modern v3 Snapshot API to grab live trades, 
     falling back to recent session close metrics if the market is closed over the weekend."""
@@ -164,15 +166,10 @@ def fetch_live_snapshot_price(ticker):
             if 'results' in data:
                 tick_meta = data['results']
                 
-                # Check live regular trading session trade executions first
                 if 'last_trade' in tick_meta and 'price' in tick_meta['last_trade']:
                     return tick_meta['last_trade']['price']
-                
-                # Regular session closing/current day pricing structural fallback
                 elif 'session' in tick_meta and 'close' in tick_meta['session']:
                     return tick_meta['session']['close']
-                    
-                # Extended hours/last daily block fallback mechanisms
                 elif 'day' in tick_meta and 'close' in tick_meta['day']:
                     return tick_meta['day']['close']
     except Exception:
@@ -231,12 +228,11 @@ if not filtered_df.empty:
         use_container_width=True,
         hide_index=True,
         disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
-        # This section below adds the professional styling rules!
         column_config={
             "Confidence": st.column_config.ProgressColumn(
                 "Model Confidence",
                 help="The algorithmic calculation certainty index",
-                format="%s",
+                format="%d%%",
                 min_value=0,
                 max_value=100,
             ),
@@ -256,7 +252,7 @@ if not filtered_df.empty:
         st.markdown(f"""
             <div class='rationale-box'>
                 <h4 style='margin-top:0;'>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
-                <p><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} | <strong>Model Confidence Level:</strong> {full_meta['Confidence']}</p>
+                <p><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} | <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
                 <hr style='border: 0; border-top: 1px solid #ccc;'>
                 <p style='font-size: 15px; line-height: 1.5;'>{full_meta['Model Rationale Summary']}</p>
             </div>
@@ -276,7 +272,6 @@ if not filtered_df.empty:
     if target_ticker in raw_history:
         stock_df = raw_history[target_ticker].copy()
         
-        # Pull latest metric layers
         live_price = fetch_live_snapshot_price(target_ticker)
         current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
         
