@@ -150,7 +150,6 @@ def fetch_polygon_market_analytics():
         
     return df, historical_data_frames
 
-@st.cache_data(ttl=60)
 def fetch_live_snapshot_price(ticker):
     """Queries Polygon's modern v3 Snapshot API to grab live trades, 
     falling back to recent session close metrics if the market is closed over the weekend."""
