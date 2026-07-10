@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#26a69a" # Trading green
+backgroundColor = "#0d1117" # Sleek dark background
+secondaryBackgroundColor = "#161b22" # Darker container panels
+textColor = "#c9d1d9" # Crisp slate white
+font = "sans serif"
