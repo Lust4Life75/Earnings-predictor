@@ -14,14 +14,98 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #26a69a;
-        margin-bottom: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    /* TRADING 212 FINTECH BACKGROUND GLOW FIX */
+    .stApp {
+        background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
+        background-attachment: fixed !important;
     }
+
+    /* DARK MODE CARD OVERHAUL */
+    .metric-card {
+        background-color: rgba(255, 255, 255, 0.04) !important;
+        padding: 18px;
+        border-radius: 12px;
+        border-left: 4px solid #26a69a;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-top: 1px solid rgba(255, 255, 255, 0.03);
+        border-right: 1px solid rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    
+    .metric-card h4 {
+        color: #9ca3af !important; /* Muted slate gray for subtitles */
+        margin: 0 0 6px 0 !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+    }
+    
+    .metric-card h2 {
+        color: #ffffff !important; /* Crisp white for data numbers */
+        margin: 0 !important;
+        font-size: 24px !important;
+        font-weight: 700 !important;
+    }
+
+    /* RATIONALE PANEL TRANSLUCENT PREMIUM BOX */
+    .rationale-box {
+        background-color: rgba(255, 255, 255, 0.04) !important;
+        padding: 24px;
+        border-radius: 12px;
+        border-left: 5px solid #26a69a;
+        margin-top: 20px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        border-top: 1px solid rgba(255, 255, 255, 0.03);
+        border-right: 1px solid rgba(255, 255, 255, 0.03);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    
+    .rationale-box h4 {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        margin-bottom: 10px !important;
+        font-size: 18px !important;
+    }
+    
+    .rationale-box p {
+        color: #e5e7eb !important; /* High-readability silver text */
+        font-size: 15px !important;
+        line-height: 1.6 !important;
+    }
+
+    /* FOOTER INTEGRATION */
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #0b0f19;
+        color: #4b5563;
+        text-align: center;
+        padding: 10px;
+        font-size: 11px;
+        z-index: 100;
+        border-top: 1px solid rgba(255, 255, 255, 0.02);
+    }
+    
+    .main .block-container {
+        padding-bottom: 70px;
+    }
+    
+    .price-up {
+        color: #097969;
+        font-weight: bold;
+        font-size: 18px;
+    }
+    
+    .price-down {
+        color: #d2143a;
+        font-weight: bold;
+        font-size: 18px;
+    }
+    </style>
     /* HIGH CONTRAST METRIC TEXT FIX */
     .metric-card h4 {
         color: #4b5563 !important; /* Crisp dark gray for the titles */
