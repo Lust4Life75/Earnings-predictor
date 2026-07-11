@@ -243,8 +243,8 @@ if not filtered_df.empty:
         </div>
     """, unsafe_allow_html=True)
 
-  # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (FINAL FIX)
+ # --------------------------------------------------------
+    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (COMPLIANT)
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
@@ -267,15 +267,19 @@ if not filtered_df.empty:
             if time_frame == "1 Day View":
                 cutoff_days = 2
                 label_text = "last 24 hours"
+                bar_size = 40  # Massive bars for 1D/2D close comparison
             elif time_frame == "1 Week View":
                 cutoff_days = 7  
                 label_text = "last week"
+                bar_size = 25  # Wide bars for 1 week
             elif time_frame == "1 Month View":
                 cutoff_days = 22
                 label_text = "last month"
+                bar_size = 12  # Standard bar width
             else:
                 cutoff_days = 66
                 label_text = "last 3 months"
+                bar_size = 4   # Thin bar width to prevent crowding
                 
             plot_df = stock_df.tail(cutoff_days).copy()
             
@@ -329,7 +333,15 @@ if not filtered_df.empty:
                     if col not in plot_df.columns:
                         plot_df[col] = plot_df[fallback]
                 
-                plot_df['color_code'] = plot_df.apply(lambda row: '#097969' if row['c'] >= row['o'] else '#d2143a', axis=1)
+                # Determine directional metric conditions
+                plot_df['condition'] = plot_df['c'] >= plot_df['o']
+                
+                # 🌟 FIXED: Use explicit Altair color conditions mapping to satisfy the v6 schema engine
+                color_condition = alt.Condition(
+                    predicate="datum.condition === true",
+                    if_true=alt.value('#097969'),  # Green
+                    if_false=alt.value('#d2143a')  # Red
+                )
                 
                 wicks = (
                     alt.Chart(plot_df)
@@ -338,24 +350,23 @@ if not filtered_df.empty:
                         x=alt.X('date:T', title=None),
                         y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
                         y2=alt.Y2('h:Q'),
-                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))
+                        color=color_condition
                     )
                 )
                 
                 bodies = (
                     alt.Chart(plot_df)
-                    .mark_bar()
+                    .mark_bar(size=bar_size)
                     .encode(
                         x=alt.X('date:T', title=None),
                         y=alt.Y('o:Q'),
                         y2=alt.Y2('c:Q'),
-                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))
+                        color=color_condition
                     )
                 )
                 
                 final_chart = alt.layer(wicks, bodies)
             
-            # 🌟 FIXED: Removed width="container" property to prevent Schema Error
             st.altair_chart(final_chart.properties(height=350), use_container_width=True)
             
         with details_col:
