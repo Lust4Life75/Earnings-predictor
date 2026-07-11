@@ -70,10 +70,6 @@ def fetch_polygon_market_analytics():
     live_records = []
     historical_data_frames = {}
     
-    columns = ["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", 
-               "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up", 
-               "Last Close Price", "Model Rationale Summary"]
-    
     for ticker, info in TICKER_DATABASE.items():
         try:
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
@@ -125,7 +121,6 @@ def fetch_polygon_market_analytics():
             target_report_date = today + datetime.timedelta(days=simulated_days_out)
 
             live_records.append({
-                "Select": False,
                 "Ticker": ticker,
                 "Company": info['name'],
                 "Sector": info['sector'],
@@ -133,7 +128,7 @@ def fetch_polygon_market_analytics():
                 "Days Left": simulated_days_out,
                 "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
                 "Predicted Direction": signal,
-                "Confidence": confidence, 
+                "Confidence": f"{confidence}%", 
                 "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
                 "Last Close Price": f"${round(price_today, 2)}",
                 "Model Rationale Summary": rationale
@@ -142,11 +137,6 @@ def fetch_polygon_market_analytics():
             continue
             
     df = pd.DataFrame(live_records)
-    if df.empty:
-        df = pd.DataFrame(columns=columns)
-    else:
-        df = df.sort_values(by="Days Left")
-        
     return df, historical_data_frames
 
 def fetch_live_snapshot_price(ticker):
@@ -216,59 +206,38 @@ with col4:
     st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
 
 st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
-st.caption("💡 **Tip:** Click the checkbox in the **'Select'** column to immediately extract the quantitative model rationale for that asset.")
 
 if not filtered_df.empty:
-    edited_df = st.data_editor(
-        filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
+    # 🌟 SUPER FIX: Swapped out st.data_editor for st.dataframe to kill the segmentation fault completely
+    st.dataframe(
+        filtered_df[["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         width="stretch",
-        hide_index=True,
-        disabled=["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
-        column_config={
-            "Confidence": st.column_config.ProgressColumn(
-                "Model Confidence",
-                help="The algorithmic calculation certainty index",
-                format="%d%%",
-                min_value=0,
-                max_value=100,
-            ),
-            "Days Left": st.column_config.NumberColumn(
-                "Days Left",
-                format="%d days"
-            )
-        }
+        hide_index=True
     )
     
-    selected_rows = edited_df[edited_df["Select"] == True]
+    st.write("---")
+    st.write("### 🔍 Select Ticker for In-Depth AI Rationale & Charts")
+    chosen_ticker = st.selectbox("Choose a company to unlock institutional model insights:", filtered_df["Ticker"].unique())
     
-    if not selected_rows.empty:
-        chosen_ticker = selected_rows.iloc[0]["Ticker"]
-        full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
-        
-        st.markdown(f"""
-            <div class='rationale-box'>
-                <h4 style='margin-top:0;'>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
-                <p><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} | <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
-                <hr style='border: 0; border-top: 1px solid #ccc;'>
-                <p style='font-size: 15px; line-height: 1.5;'>{full_meta['Model Rationale Summary']}</p>
-            </div>
-        """, unsafe_allow_html=True)
-else:
-    st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
-
-# --------------------------------------------------------
+    full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
+    
+    st.markdown(f"""
+        <div class='rationale-box'>
+            <h4 style='margin-top:0;'>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
+            <p><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} | <strong>Model Confidence Level:</strong> {full_meta['Confidence']}</p>
+            <hr style='border: 0; border-top: 1px solid #ccc;'>
+            <p style='font-size: 15px; line-height: 1.5;'>{full_meta['Model Rationale Summary']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # --------------------------------------------------------
 # 4. VISUAL ANALYSIS & STABLE CHART RENDERING SYSTEM
 # --------------------------------------------------------
-st.write("---")
-st.write("### 🔍 Live Charting & Momentum Diagnostics")
-
-if not filtered_df.empty:
-    target_ticker = st.selectbox("Select an upcoming target ticker to map visual data trends:", filtered_df["Ticker"].unique())
-    
-    if target_ticker in raw_history:
-        stock_df = raw_history[target_ticker].copy()
+    st.write("<br>", unsafe_allow_html=True)
+    if chosen_ticker in raw_history:
+        stock_df = raw_history[chosen_ticker].copy()
         
-        live_price = fetch_live_snapshot_price(target_ticker)
+        live_price = fetch_live_snapshot_price(chosen_ticker)
         current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
@@ -279,24 +248,21 @@ if not filtered_df.empty:
             cutoff_days = 22 if time_frame == "1 Month View" else 66
             plot_df = stock_df.tail(cutoff_days).copy()
             
-            # Format the layout table cleanly to pipe directly into the stable native engine
             chart_data = pd.DataFrame(plot_df['c'])
             chart_data.columns = ['Historical Close Vector']
             
-            # Render via native high-speed engine
             st.line_chart(chart_data, width="stretch")
             
         with details_col:
-            meta = filtered_df[filtered_df["Ticker"] == target_ticker].iloc[0]
             st.markdown("<br>", unsafe_allow_html=True)
             st.metric(
                 label="Streaming Execution Price" if live_price else "Official Market Close Price", 
                 value=f"${round(current_price, 2)}"
             )
-            st.metric(label="14-Day Vector Run-up Trend", value=meta["14-Day Price Run-up"])
-            st.metric(label="Calculated Expected Volatility Move", value=meta["Expected Move %"])
+            st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
+            st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
 else:
-    st.info("Awaiting structural pipeline data streams.")
+    st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
 
 st.markdown("""
     <div class='footer'>
