@@ -4,7 +4,7 @@ import datetime
 import requests
 
 # --------------------------------------------------------
-# 1. PAGE CONFIGURATION & STYLING
+# 1. PAGE CONFIGURATION & PREMIUM STYLING
 # --------------------------------------------------------
 st.set_page_config(
     page_title="Live Institutional Earnings Engine",
@@ -47,7 +47,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. DATA PROCESSING ENGINE (STABLE ONE-TIME BOOT)
+# 2. OFFICIAL LIVE BENZINGA/POLYGON CALENDAR ENGINE
 # --------------------------------------------------------
 try:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -55,102 +55,133 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-TICKER_DATABASE = {
-    'AAPL': {'name': 'Apple Inc.', 'sector': 'Technology', 'industry_avg_move': 5.2},
-    'MSFT': {'name': 'Microsoft Corp.', 'sector': 'Technology', 'industry_avg_move': 4.8},
-    'NVDA': {'name': 'NVIDIA Corp.', 'sector': 'Technology', 'industry_avg_move': 8.5},
-    'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8}
-}
-
 @st.cache_resource
-def load_market_data_matrix():
+def load_live_market_calendar():
     today = datetime.date.today()
-    start_date = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
-    end_date = today.strftime('%Y-%m-%d')
+    thirty_days_out = today + datetime.timedelta(days=30)
+    
+    # 🌟 STEP 1: Query the real, upcoming Benzinga Institutional Calendar
+    calendar_url = f"https://api.polygon.io/v1/partners/benzinga/earnings"
+    params = {
+        "sort": "date",
+        "order": "asc",
+        "limit": 1000,
+        "apiKey": API_KEY
+    }
     
     live_records = []
     historical_data_frames = {}
     
-    for ticker, info in TICKER_DATABASE.items():
-        try:
-            url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
-            res = requests.get(url, timeout=10)
-            if res.status_code != 200:
-                continue
+    try:
+        response = requests.get(calendar_url, params=params, timeout=15)
+        if response.status_code == 200:
+            events = response.json().get('results', [])
+            
+            # Filter for events occurring over the rolling 30 day macro layout window
+            filtered_events = []
+            for ev in events:
+                event_date_str = ev.get('date')
+                if event_date_str:
+                    ev_date = datetime.datetime.strptime(event_date_str, "%Y-%m-%d").date()
+                    if today <= ev_date <= thirty_days_out:
+                        filtered_events.append(ev)
+            
+            # 🌟 STEP 2: Gather technical distributions for reporting tickers
+            # Limit to top 40 unique upcoming tickers in the calendar window to prevent dashboard lag
+            seen_tickers = set()
+            unique_events = []
+            for ev in filtered_events:
+                tk = ev.get('ticker')
+                if tk and tk not in seen_tickers and tk.isalpha() and len(tk) <= 4:
+                    seen_tickers.add(tk)
+                    unique_events.append(ev)
+                if len(unique_events) >= 40:
+                    break
+            
+            hist_start = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+            hist_end = today.strftime('%Y-%m-%d')
+            
+            for ev in unique_events:
+                ticker = ev['ticker']
+                company_name = ev.get('company_name', ticker)
+                report_date_str = ev['date']
+                report_date = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
+                days_left = (report_date - today).days
                 
-            response = res.json()
-            if 'results' not in response or not response['results']:
-                continue
+                # Fetch clean structural aggregate histories for this stock
+                hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
+                h_res = requests.get(hist_url, timeout=5)
                 
-            hist_list = response['results']
-            hist_df = pd.DataFrame(hist_list)
-            hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
-            hist_df.set_index('date', inplace=True)
-            
-            historical_data_frames[ticker] = hist_df
-            
-            price_today = hist_df['c'].iloc[-1]
-            price_14d_ago = hist_df['c'].iloc[-14] if len(hist_df) >= 14 else hist_df['c'].iloc[0]
-            actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
-            
-            pct_changes = hist_df['c'].pct_change().dropna()
-            firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
-            empirical_expected_move = (firm_volatility_metric * 0.65) + (info['industry_avg_move'] * 0.35)
-            
-            if actual_runup > 4.5:
-                signal = "🔴 Bearish (Overbought Risk)"
-                confidence = 74
-                rationale = f"The asset is displaying heavy pre-event price over-extension. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical distributions. This signals high overbought risk, suggesting institutional profit-taking is highly probable immediately following the event disclosure."
-            elif actual_runup < -3.0:
-                signal = "🟢 Bullish (Oversold Bounce)"
-                confidence = 71
-                rationale = f"Significant pre-earnings capital liquidation detected. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate near-term selling pressure is thoroughly exhausted. This oversold structure historically triggers an institutional accumulation reaction or mean-reversion squeeze."
-            else:
-                if actual_runup >= 0:
-                    signal = "🟢 Bullish"
-                    rationale = f"The underlying pricing vector is displaying steady, structured accumulation, drifting up {round(actual_runup, 1)}% over the last 14 days. Current options pricing indicates stable baseline momentum heading into the announcement."
+                if h_res.status_code != 200:
+                    continue
+                h_data = h_res.json()
+                if 'results' not in h_data or not h_data['results']:
+                    continue
+                    
+                hist_list = h_data['results']
+                hist_df = pd.DataFrame(hist_list)
+                hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
+                hist_df.set_index('date', inplace=True)
+                
+                historical_data_frames[ticker] = hist_df
+                
+                price_today = hist_df['c'].iloc[-1]
+                price_14d_ago = hist_df['c'].iloc[-14] if len(hist_df) >= 14 else hist_df['c'].iloc[0]
+                actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
+                
+                pct_changes = hist_df['c'].pct_change().dropna()
+                firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
+                empirical_expected_move = (firm_volatility_metric * 0.65) + (5.0 * 0.35)
+                
+                if actual_runup > 4.5:
+                    signal = "🔴 Bearish (Overbought Risk)"
+                    confidence = 74
+                    rationale = f"The asset is displaying heavy pre-event price over-extension. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical distributions. This signals high overbought risk, suggesting institutional profit-taking is highly probable immediately following the event disclosure."
+                elif actual_runup < -3.0:
+                    signal = "🟢 Bullish (Oversold Bounce)"
+                    confidence = 71
+                    rationale = f"Significant pre-earnings capital liquidation detected. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate near-term selling pressure is thoroughly exhausted. This oversold structure historically triggers an institutional accumulation reaction or mean-reversion squeeze."
                 else:
-                    signal = "🔴 Bearish"
-                    rationale = f"The data grid highlights minor negative structural distribution, with price slipping {round(actual_runup, 1)}% in the 14-day lead-up. The model registers light institutional de-risking ahead of the announcement window."
-                confidence = 63
+                    if actual_runup >= 0:
+                        signal = "🟢 Bullish"
+                        rationale = f"The underlying pricing vector is displaying steady, structured accumulation, drifting up {round(actual_runup, 1)}% over the last 14 days. Current options pricing indicates stable baseline momentum heading into the announcement."
+                    else:
+                        signal = "🔴 Bearish"
+                        rationale = f"The data grid highlights minor negative structural distribution, with price slipping {round(actual_runup, 1)}% in the 14-day lead-up. The model registers light institutional de-risking ahead of the announcement window."
+                    confidence = 63
 
-            simulated_days_out = (hash(ticker) % 30) + 1
-            target_report_date = today + datetime.timedelta(days=simulated_days_out)
-
-            live_records.append({
-                "Ticker": ticker,
-                "Company": info['name'],
-                "Sector": info['sector'],
-                "Report Date": target_report_date.strftime('%Y-%m-%d'),
-                "Days Left": simulated_days_out,
-                "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
-                "Predicted Direction": signal,
-                "Confidence": confidence, 
-                "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
-                "Last Close Price": f"${round(price_today, 2)}",
-                "Model Rationale Summary": rationale
-            })
-        except Exception:
-            continue
+                live_records.append({
+                    "Select": False,
+                    "Ticker": ticker,
+                    "Company": company_name,
+                    "Report Date": report_date_str,
+                    "Days Left": days_left,
+                    "Expected Move %": f"± {round(empirical_expected_move, 1)}%",
+                    "Predicted Direction": signal,
+                    "Confidence": confidence, 
+                    "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
+                    "Last Close Price": f"${round(price_today, 2)}",
+                    "Model Rationale Summary": rationale
+                })
+        else:
+            st.error(f"Failed to access the official Benzinga Calendar Feed: {response.status_code}")
+    except Exception as e:
+        st.error(f"Data stream link interrupted: {e}")
             
     df = pd.DataFrame(live_records)
     if not df.empty:
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
-# Load dataset safely into the server memory once
-df_live, raw_history = load_market_data_matrix()
+# Unpack the verified real data matrix
+df_live, raw_history = load_live_market_calendar()
 
 # --------------------------------------------------------
 # 3. INTERACTIVE DASHBOARD UI
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
-st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
+st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')} | Verified Benzinga Feed")
 st.write("---")
-
-st.sidebar.header("Data Filter Configurations")
-all_possible_sectors = sorted(list(set(info['sector'] for info in TICKER_DATABASE.values())))
-selected_sector = st.sidebar.multiselect("Sectors", options=all_possible_sectors, default=all_possible_sectors)
 
 st.write("### 🎛️ Select Analysis Scope Horizon")
 time_horizon = st.radio(
@@ -162,12 +193,8 @@ time_horizon = st.radio(
 
 max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
 
-# Filter variables locally in memory—completely crash-proof
 if not df_live.empty:
-    filtered_df = df_live[
-        (df_live["Sector"].isin(selected_sector)) & 
-        (df_live["Days Left"] <= max_days_allowed)
-    ].copy()
+    filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
 else:
     filtered_df = pd.DataFrame()
 
@@ -184,19 +211,32 @@ with col3:
 with col4:
     st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
 
-st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
+st.write(f"### 📊 Official Earnings Calendar Matrix ({time_horizon})")
 
 if not filtered_df.empty:
-    st.dataframe(
-        filtered_df[["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
+    edited_df = st.data_editor(
+        filtered_df[["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         width="stretch",
-        hide_index=True
+        hide_index=True,
+        disabled=["Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
+        column_config={
+            "Confidence": st.column_config.ProgressColumn(
+                "Model Confidence",
+                help="The algorithmic calculation certainty index",
+                format="%d%%",
+                min_value=0,
+                max_value=100,
+            ),
+            "Days Left": st.column_config.NumberColumn(
+                "Days Left",
+                format="%d days"
+            )
+        }
     )
     
-    st.write("---")
-    st.write("### 🔍 Select Ticker for In-Depth AI Rationale & Charts")
-    chosen_ticker = st.selectbox("Choose a company to unlock institutional model insights:", filtered_df["Ticker"].unique())
-    
+    selected_rows = edited_df[edited_df["Select"] == True]
+    chosen_ticker = selected_rows.iloc[0]["Ticker"] if not selected_rows.empty else filtered_df["Ticker"].iloc[0]
+        
     full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
     
     st.markdown(f"""
@@ -209,33 +249,34 @@ if not filtered_df.empty:
     """, unsafe_allow_html=True)
 
     # --------------------------------------------------------
-    # 4. VISUAL DEEP DIVE (STABLE HIGH-SPEED CHARTS)
+    # 4. VISUALIZATION SYSTEM
     # --------------------------------------------------------
-    st.write("<br>", unsafe_allow_html=True)
+    st.write("---")
+    st.write("### 🔍 Live Charting & Momentum Diagnostics")
+    
     if chosen_ticker in raw_history:
         stock_df = raw_history[chosen_ticker].copy()
         current_price = stock_df['c'].iloc[-1]
         
-        st.write("#### 📈 Price Horizon Vector")
-        time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
-        cutoff_days = 22 if time_frame == "1 Month View" else 66
-        plot_df = stock_df.tail(cutoff_days).copy()
+        chart_col, details_col = st.columns([3, 1])
         
-        chart_data = pd.DataFrame(plot_df['c'])
-        chart_data.columns = ['Historical Close Vector']
-        
-        st.line_chart(chart_data, width="stretch")
-        
-        st.write("#### 📊 Quantitative Metrics Matrix")
-        m_col1, m_col2, m_col3 = st.columns(3)
-        with m_col1:
+        with chart_col:
+            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
+            cutoff_days = 22 if time_frame == "1 Month View" else 66
+            plot_df = stock_df.tail(cutoff_days).copy()
+            
+            chart_data = pd.DataFrame(plot_df['c'])
+            chart_data.columns = ['Historical Close Vector']
+            
+            st.line_chart(chart_data, width="stretch")
+            
+        with details_col:
+            st.markdown("<br>", unsafe_allow_html=True)
             st.metric(label="Official Market Close Price", value=f"${round(current_price, 2)}")
-        with m_col2:
             st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
-        with m_col3:
             st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
 else:
-    st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
+    st.info("No companies on the official public calendar match your target timeline filters right now.")
 
 st.markdown("""
     <div class='footer'>
