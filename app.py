@@ -243,19 +243,19 @@ if not filtered_df.empty:
         </div>
     """, unsafe_allow_html=True)
 
-    # --------------------------------------------------------
-    # 5. EXPANDED VISUALIZATION SYSTEM WITH TIMEFRAME METRICS
+   # --------------------------------------------------------
+    # 5. VISUALIZATION SYSTEM WITH TIMEFRAME METRICS (FIXED)
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
     
     if chosen_ticker in raw_history:
+        import altair as alt  # Imported securely for customized layout rendering
         stock_df = raw_history[chosen_ticker].copy()
         
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            # WIDGET TIMEFRAME SELECTION OPTIONS
             time_frame = st.radio(
                 "Select Trading Range Window:", 
                 ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
@@ -275,7 +275,7 @@ if not filtered_df.empty:
                 cutoff_days = 66
                 label_text = "last 3 months"
                 
-            plot_df = stock_df.tail(cutoff_days).copy()
+            plot_df = stock_df.tail(cutoff_days).copy().reset_index()
             
             # PERFORMANCE TRACKER MATH
             start_val = plot_df['c'].iloc[0]
@@ -285,73 +285,29 @@ if not filtered_df.empty:
             
             if nominal_change >= 0:
                 perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+                line_color = "#097969"  # Match Trading 212 Green
             else:
                 perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+                line_color = "#d2143a"  # Match Trading 212 Red
                 
             st.markdown(f"### {chosen_ticker} Closing Price Vector: {perf_html}", unsafe_allow_html=True)
             
-            # 🌟 TRADING 212 STYLE DYNAMIC BOUNDS FIX
-            # Instead of standard line charts, we pass explicit layout bounds to the editor
-            chart_data = pd.DataFrame(plot_df['c'])
-            chart_data.columns = ['Price']
-            
-            # Find the true padding corridor
-            min_price = float(chart_data['Price'].min())
-            max_price = float(chart_data['Price'].max())
-            padding = (max_price - min_price) * 0.15 if max_price != min_price else 5.0
-            
-            # Enforce the tailored view scale matrix
-            st.line_chart(
-                chart_data, 
-                y_select=[min_price - padding, max_price + padding], 
-                width="stretch"
+            # 🌟 TRADING 212 NATIVE ALTAIR CONFIGURE
+            # zero=False automatically crops out the empty space down to $0!
+            altair_chart = (
+                alt.Chart(plot_df)
+                .mark_line(color=line_color, strokeWidth=2.5)
+                .encode(
+                    x=alt.X('date:T', title=None),
+                    y=alt.Y('c:Q', title="Price ($)", scale=alt.Scale(zero=False))
+                )
+                .properties(width="container", height=350)
             )
             
-            # Map selected timeline choices to dataframe slices safely
-            if time_frame == "1 Day View":
-                cutoff_days = 2
-                label_text = "last 24 hours"
-            elif time_frame == "1 Week View":
-                cutoff_days = 5
-                label_text = "last week"
-            elif time_frame == "1 Month View":
-                cutoff_days = 22
-                label_text = "last month"
-            else:
-                cutoff_days = 66
-                label_text = "last 3 months"
-                
-            plot_df = stock_df.tail(cutoff_days).copy()
-            
-            # 🌟 DYNAMIC HORIZON PERFORMANCE MATH ENGINE
-            start_val = plot_df['c'].iloc[0]
-            end_val = plot_df['c'].iloc[-1]
-            nominal_change = end_val - start_val
-            pct_change = (nominal_change / start_val) * 100
-            
-            # Format and display the performance banner using your exact image theme rule
-            if nominal_change >= 0:
-                perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-            else:
-                perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                
-            st.markdown(f"### {chosen_ticker} Closing Price Vector: {perf_html}", unsafe_allow_html=True)
-            
-            chart_data = pd.DataFrame(plot_df['c'])
-            chart_data.columns = ['Historical Close Vector']
-            st.line_chart(chart_data, width="stretch")
+            st.altair_chart(altair_chart, use_container_width=True)
             
         with details_col:
             st.markdown("<br><br>", unsafe_allow_html=True)
             st.metric(label="Official Market Close Price", value=f"${round(end_val, 2)}")
             st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
-else:
-    st.info("No active pipeline data available matching filters.")
-
-st.markdown("""
-    <div class='footer'>
-        <strong>Risk Warning:</strong> Systems architecture provides algorithmic estimations only based on trailing computations. 
-        Not intended as structured investment advice or trade solicitations. All execution features remain speculative.
-    </div>
-""", unsafe_allow_html=True)
