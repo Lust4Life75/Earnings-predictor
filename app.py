@@ -4,7 +4,7 @@ import datetime
 import requests
 
 # --------------------------------------------------------
-# 1. PAGE CONFIGURATION & PREMIUM STYLING
+# 1. PAGE CONFIGURATION & HIGH-CONTRAST STYLING
 # --------------------------------------------------------
 st.set_page_config(
     page_title="Live Institutional Earnings Engine",
@@ -36,12 +36,34 @@ st.markdown("""
     .main .block-container {
         padding-bottom: 60px;
     }
+    /* HIGH CONTRAST TYPOGRAPHY CORRECTION FIX */
     .rationale-box {
-        background-color: #eef1f6;
-        padding: 20px;
+        background-color: #f0f4f8;
+        padding: 22px;
         border-radius: 8px;
         border-left: 6px solid #26a69a;
         margin-top: 15px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .rationale-box h4 {
+        color: #111827 !important;
+        font-weight: 700 !important;
+        margin-bottom: 8px !important;
+    }
+    .rationale-box p {
+        color: #1f2937 !important;
+        font-size: 15px !important;
+        line-height: 1.6 !important;
+    }
+    .price-up {
+        color: #097969;
+        font-weight: bold;
+        font-size: 18px;
+    }
+    .price-down {
+        color: #d2143a;
+        font-weight: bold;
+        font-size: 18px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -50,7 +72,6 @@ st.markdown("""
 # 2. CORE COMPUTE METRIC ENGINE
 # --------------------------------------------------------
 def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist_df):
-    """Processes historical data tables uniformly to output authentic signals and model rationales."""
     price_today = hist_df['c'].iloc[-1]
     price_14d_ago = hist_df['c'].iloc[-14] if len(hist_df) >= 14 else hist_df['c'].iloc[0]
     actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
@@ -91,7 +112,7 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
     }
 
 # --------------------------------------------------------
-# 3. LIVE STREAM INTELLIGENCE PIPELINE
+# 3. LIVE DATA INTEGRATION PIPELINE
 # --------------------------------------------------------
 try:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -142,9 +163,8 @@ def load_live_market_calendar():
             raise Exception("Empty stream check")
             
     except Exception:
-        # 🌟 EMERGENCY INTERCEPTOR: Runs identical calculation mechanics for premium display safety
         fallback_tickers = ['PLTR', 'MSFT', 'AMD', 'TSLA', 'GOOGL', 'NFLX', 'NVDA', 'AAPL', 'META', 'AMZN']
-        for i, ticker in enumerate(fallback_tickers):
+        for ticker in fallback_tickers:
             sim_days = (hash(ticker) % 20) + 7
             report_date_str = (today + datetime.timedelta(days=sim_days)).strftime('%Y-%m-%d')
             
@@ -156,7 +176,6 @@ def load_live_market_calendar():
                 hist_df.set_index('date', inplace=True)
                 historical_data_frames[ticker] = hist_df
                 
-                # 🌟 FIX: Running the identical metric engine to enforce dynamic directions and unique rationales
                 record = analyze_market_vector(ticker, f"{ticker} Corporation", report_date_str, sim_days, hist_df)
                 live_records.append(record)
                 
@@ -209,45 +228,77 @@ if not filtered_df.empty:
         }
     )
     
-    # Extract the user's manual grid selection
     selected_rows = edited_df[edited_df["Select"] == True]
     chosen_ticker = selected_rows.iloc[0]["Ticker"] if not selected_rows.empty else filtered_df["Ticker"].iloc[0]
         
     full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
     
-    # 🌟 FIX: Connected directly to display the dynamic calculation summary statement safely
+    # RATIONALE DISPLAY PANEL WITH CORRECTIONS FOR ULTRA-READABILITY
     st.markdown(f"""
         <div class='rationale-box'>
-            <h4 style='margin-top:0;'>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
-            <p><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} | <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
-            <hr style='border: 0; border-top: 1px solid #ccc;'>
-            <p style='font-size: 15px; line-height: 1.5;'>{full_meta['Model Rationale Summary']}</p>
+            <h4>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
+            <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
+            <hr style='border: 0; border-top: 1px solid #cbd5e1; margin: 12px 0;'>
+            <p><strong>Analysis Summary:</strong> {full_meta['Model Rationale Summary']}</p>
         </div>
     """, unsafe_allow_html=True)
 
     # --------------------------------------------------------
-    # 5. VISUALIZATION CHANNEL
+    # 5. EXPANDED VISUALIZATION SYSTEM WITH TIMEFRAME METRICS
     # --------------------------------------------------------
     st.write("---")
-    st.write("### 🔍 Live Charting & Momentum Diagnostics")
+    st.write("### 🔍 Live Charting & Horizon Performance Tracker")
     
     if chosen_ticker in raw_history:
         stock_df = raw_history[chosen_ticker].copy()
-        current_price = stock_df['c'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
+        
         with chart_col:
-            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
-            cutoff_days = 22 if time_frame == "1 Month View" else 66
+            # 🌟 EXPANDED HORIZONS RANGE WIDGET
+            time_frame = st.radio(
+                "Select Trading Range Window:", 
+                ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
+                horizontal=True
+            )
+            
+            # Map selected timeline choices to dataframe slices safely
+            if time_frame == "1 Day View":
+                cutoff_days = 2
+                label_text = "last 24 hours"
+            elif time_frame == "1 Week View":
+                cutoff_days = 5
+                label_text = "last week"
+            elif time_frame == "1 Month View":
+                cutoff_days = 22
+                label_text = "last month"
+            else:
+                cutoff_days = 66
+                label_text = "last 3 months"
+                
             plot_df = stock_df.tail(cutoff_days).copy()
+            
+            # 🌟 DYNAMIC HORIZON PERFORMANCE MATH ENGINE
+            start_val = plot_df['c'].iloc[0]
+            end_val = plot_df['c'].iloc[-1]
+            nominal_change = end_val - start_val
+            pct_change = (nominal_change / start_val) * 100
+            
+            # Format and display the performance banner using your exact image theme rule
+            if nominal_change >= 0:
+                perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+            else:
+                perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+                
+            st.markdown(f"### {chosen_ticker} Closing Price Vector: {perf_html}", unsafe_allow_html=True)
             
             chart_data = pd.DataFrame(plot_df['c'])
             chart_data.columns = ['Historical Close Vector']
             st.line_chart(chart_data, width="stretch")
             
         with details_col:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(label="Official Market Close Price", value=f"${round(current_price, 2)}")
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.metric(label="Official Market Close Price", value=f"${round(end_val, 2)}")
             st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
 else:
