@@ -47,7 +47,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. POLYGON.IO FREE-TIER PRODUCTION DATA ENGINE
+# 2. POLYGON.IO PRODUCTION DATA ENGINE
 # --------------------------------------------------------
 try:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -193,22 +193,13 @@ if not df_live.empty and "Sector" in df_live.columns:
 else:
     filtered_df = pd.DataFrame()
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown(f"<div class='metric-card'><h4>Active Catalyst Pipeline</h4><h2>{len(filtered_df)} Companies</h2></div>", unsafe_allow_html=True)
-with col2:
-    bull_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bullish")]) if not filtered_df.empty else 0
-    st.markdown(f"<div class='metric-card'><h4>Aggregated Bullish Signals</h4><h2>{bull_count} Stocks</h2></div>", unsafe_allow_html=True)
-with col3:
-    bear_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bearish")]) if not filtered_df.empty else 0
-    st.markdown(f"<div class='metric-card'><h4>Aggregated Bearish Signals</h4><h2>{bear_count} Stocks</h2></div>", unsafe_allow_html=True)
-with col4:
-    st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
-
-st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
-
+# 🌟 FIXED: Consolidated metrics into a single scannable string block to protect the script lifecycle
 if not filtered_df.empty:
-    # 🌟 SUPER FIX: Swapped out st.data_editor for st.dataframe to kill the segmentation fault completely
+    bull_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bullish")])
+    bear_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bearish")])
+    st.info(f"📊 **Current Pipeline Pipeline Statistics:** Active Catalysts: {len(filtered_df)} | Bullish Horizons: {bull_count} | Bearish Horizons: {bear_count}")
+    
+    st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
     st.dataframe(
         filtered_df[["Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         width="stretch",
@@ -231,8 +222,8 @@ if not filtered_df.empty:
     """, unsafe_allow_html=True)
     
     # --------------------------------------------------------
-# 4. VISUAL ANALYSIS & STABLE CHART RENDERING SYSTEM
-# --------------------------------------------------------
+    # 4. VISUAL ANALYSIS & CLEAN LINEAR CHARTING
+    # --------------------------------------------------------
     st.write("<br>", unsafe_allow_html=True)
     if chosen_ticker in raw_history:
         stock_df = raw_history[chosen_ticker].copy()
@@ -240,27 +231,25 @@ if not filtered_df.empty:
         live_price = fetch_live_snapshot_price(chosen_ticker)
         current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
         
-        chart_col, details_col = st.columns([3, 1])
+        # 🌟 FIXED: Swapped out nested column layouts for clean top-to-bottom layout blocks
+        st.write("#### 📈 Price Horizon Vector")
+        time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
+            
+        cutoff_days = 22 if time_frame == "1 Month View" else 66
+        plot_df = stock_df.tail(cutoff_days).copy()
         
-        with chart_col:
-            time_frame = st.radio("Chart Horizon Range:", ["1 Month View", "3 Month View"], horizontal=True, label_visibility="collapsed")
-                
-            cutoff_days = 22 if time_frame == "1 Month View" else 66
-            plot_df = stock_df.tail(cutoff_days).copy()
-            
-            chart_data = pd.DataFrame(plot_df['c'])
-            chart_data.columns = ['Historical Close Vector']
-            
-            st.line_chart(chart_data, width="stretch")
-            
-        with details_col:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(
-                label="Streaming Execution Price" if live_price else "Official Market Close Price", 
-                value=f"${round(current_price, 2)}"
-            )
-            st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
-            st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
+        chart_data = pd.DataFrame(plot_df['c'])
+        chart_data.columns = ['Historical Close Vector']
+        
+        st.line_chart(chart_data, width="stretch")
+        
+        st.write("#### 📊 Quantitative Metrics Matrix")
+        st.metric(
+            label="Streaming Execution Price" if live_price else "Official Market Close Price", 
+            value=f"${round(current_price, 2)}"
+        )
+        st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
+        st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
 else:
     st.info("Adjust configurations or filters. Awaiting pipeline active asset structures.")
 
