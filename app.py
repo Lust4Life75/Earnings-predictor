@@ -267,19 +267,19 @@ if not filtered_df.empty:
             if time_frame == "1 Day View":
                 cutoff_days = 2
                 label_text = "last 24 hours"
-                bar_size = 40  # Massive bars for 1D/2D close comparison
+                bar_size = 40  
             elif time_frame == "1 Week View":
                 cutoff_days = 7  
                 label_text = "last week"
-                bar_size = 25  # Wide bars for 1 week
+                bar_size = 25  
             elif time_frame == "1 Month View":
                 cutoff_days = 22
                 label_text = "last month"
-                bar_size = 12  # Standard bar width
+                bar_size = 12  
             else:
                 cutoff_days = 66
                 label_text = "last 3 months"
-                bar_size = 4   # Thin bar width to prevent crowding
+                bar_size = 4   
                 
             plot_df = stock_df.tail(cutoff_days).copy()
             
@@ -294,10 +294,10 @@ if not filtered_df.empty:
             
             if nominal_change >= 0:
                 perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#097969"  # Trading 212 Green
+                theme_color = "#097969"  
             else:
                 perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#d2143a"  # Trading 212 Red
+                theme_color = "#d2143a"  
                 
             st.markdown(f"### {chosen_ticker} Price Action: {perf_html}", unsafe_allow_html=True)
             
@@ -336,11 +336,11 @@ if not filtered_df.empty:
                 # Determine directional metric conditions
                 plot_df['condition'] = plot_df['c'] >= plot_df['o']
                 
-                # 🌟 FIXED: Use explicit Altair color conditions mapping to satisfy the v6 schema engine
-                color_condition = alt.Condition(
+                # 🌟 LOWERCASE FIX APPLIED HERE
+                color_condition = alt.condition(
                     predicate="datum.condition === true",
-                    if_true=alt.value('#097969'),  # Green
-                    if_false=alt.value('#d2143a')  # Red
+                    if_true=alt.value('#097969'),  
+                    if_false=alt.value('#d2143a')  
                 )
                 
                 wicks = (
