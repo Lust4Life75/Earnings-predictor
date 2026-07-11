@@ -244,29 +244,31 @@ if not filtered_df.empty:
     """, unsafe_allow_html=True)
 
    # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM WITH TIMEFRAME METRICS (FIXED)
+    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
     
     if chosen_ticker in raw_history:
-        import altair as alt  # Imported securely for customized layout rendering
-        stock_df = raw_history[chosen_ticker].copy()
+        import altair as alt
+        stock_df = raw_history[chosen_ticker].copy().reset_index()
         
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
+            # Timeframe selection controls
             time_frame = st.radio(
                 "Select Trading Range Window:", 
                 ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
                 horizontal=True
             )
             
+            # Dynamic cutoff settings
             if time_frame == "1 Day View":
                 cutoff_days = 2
                 label_text = "last 24 hours"
             elif time_frame == "1 Week View":
-                cutoff_days = 5
+                cutoff_days = 7  # Expanded to show full structural week curve
                 label_text = "last week"
             elif time_frame == "1 Month View":
                 cutoff_days = 22
@@ -275,9 +277,12 @@ if not filtered_df.empty:
                 cutoff_days = 66
                 label_text = "last 3 months"
                 
-            plot_df = stock_df.tail(cutoff_days).copy().reset_index()
+            plot_df = stock_df.tail(cutoff_days).copy()
             
-            # PERFORMANCE TRACKER MATH
+            # 🌟 RE-ACTIVATED: CHART STYLE TOGGLE WIDGET
+            chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
+            
+            # Performance calculations
             start_val = plot_df['c'].iloc[0]
             end_val = plot_df['c'].iloc[-1]
             nominal_change = end_val - start_val
@@ -285,26 +290,67 @@ if not filtered_df.empty:
             
             if nominal_change >= 0:
                 perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                line_color = "#097969"  # Match Trading 212 Green
+                theme_color = "#097969"  # Trading 212 Green
             else:
                 perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                line_color = "#d2143a"  # Match Trading 212 Red
+                theme_color = "#d2143a"  # Trading 212 Red
                 
-            st.markdown(f"### {chosen_ticker} Closing Price Vector: {perf_html}", unsafe_allow_html=True)
+            st.markdown(f"### {chosen_ticker} Price Action: {perf_html}", unsafe_allow_html=True)
             
-            # 🌟 TRADING 212 NATIVE ALTAIR CONFIGURE
-            # zero=False automatically crops out the empty space down to $0!
-            altair_chart = (
-                alt.Chart(plot_df)
-                .mark_line(color=line_color, strokeWidth=2.5)
-                .encode(
-                    x=alt.X('date:T', title=None),
-                    y=alt.Y('c:Q', title="Price ($)", scale=alt.Scale(zero=False))
+            # Dynamic bounding to prevent squishing
+            min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
+            max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
+            padding = (max_price - min_price) * 0.1
+            y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
+            
+            if chart_style == "Line View":
+                # Clean, interpolated smooth line format
+                base_chart = (
+                    alt.Chart(plot_df)
+                    .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
+                    .encode(
+                        x=alt.X('date:T', title=None),
+                        y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
+                    )
                 )
-                .properties(width="container", height=350)
-            )
+                final_chart = base_chart
+            else:
+                # 🌟 TRUE FINANCIAL CANDLESTICK RENDERING (O, H, L, C fields)
+                # Map default keys if Polygon columns are shorthand names (o=open, h=high, l=low, c=close)
+                for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
+                    if col not in plot_df.columns:
+                        plot_df[col] = plot_df[fallback]
+                
+                # Dynamic green/red rule identifier color matrix matching stock close outcomes
+                plot_df['color_rule'] = plot_df.apply(lambda row: '#097969' if row['c'] >= row['o'] else '#d2143a', axis=1)
+                
+                # Build the thin vertical wick line
+                wicks = (
+                    alt.Chart(plot_df)
+                    .mark_rule(strokeWidth=1.5)
+                    .encode(
+                        x=alt.X('date:T', title=None),
+                        y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
+                        y2=alt.Y2('h:Q'),
+                        color=alt.Color('color_rule:N', scale=alt.Scale(identity='alignment'))
+                    )
+                )
+                
+                # Build the solid candlestick block body
+                bodies = (
+                    alt.Chart(plot_df)
+                    .mark_bar(width=10 if cutoff_days < 25 else 4)
+                    .encode(
+                        x=alt.X('date:T'),
+                        y=alt.Y('o:Q'),
+                        y2=alt.Y2('c:Q'),
+                        color=alt.Color('color_rule:N', scale=alt.Scale(identity='alignment'))
+                    )
+                )
+                
+                final_chart = alt.layer(wicks, bodies)
             
-            st.altair_chart(altair_chart, use_container_width=True)
+            st.altair_chart(final_chart.properties(width="container", height=350), use_container_width=True)
             
         with details_col:
             st.markdown("<br><br>", unsafe_allow_html=True)
