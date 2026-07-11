@@ -243,8 +243,8 @@ if not filtered_df.empty:
         </div>
     """, unsafe_allow_html=True)
 
-   # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (FIXED)
+  # --------------------------------------------------------
+    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (FINAL FIX)
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
@@ -304,7 +304,6 @@ if not filtered_df.empty:
             y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
             
             if chart_style == "Line View":
-                # Clean line with point markers so short timelines (1W/1D) are completely intuitive
                 base_line = (
                     alt.Chart(plot_df)
                     .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
@@ -314,7 +313,6 @@ if not filtered_df.empty:
                     )
                 )
                 
-                # Add explicit circular dots on top of the line for clarity
                 points = (
                     alt.Chart(plot_df)
                     .mark_point(color=theme_color, size=40, filled=True)
@@ -331,10 +329,8 @@ if not filtered_df.empty:
                     if col not in plot_df.columns:
                         plot_df[col] = plot_df[fallback]
                 
-                # Assign explicit color codes based on day outcome
                 plot_df['color_code'] = plot_df.apply(lambda row: '#097969' if row['c'] >= row['o'] else '#d2143a', axis=1)
                 
-                # Build the thin vertical wick line
                 wicks = (
                     alt.Chart(plot_df)
                     .mark_rule(strokeWidth=1.5)
@@ -342,25 +338,25 @@ if not filtered_df.empty:
                         x=alt.X('date:T', title=None),
                         y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
                         y2=alt.Y2('h:Q'),
-                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))  # 🌟 FIXED: identity='mapping'
+                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))
                     )
                 )
                 
-                # Build the solid candlestick block body
                 bodies = (
                     alt.Chart(plot_df)
-                    .mark_bar(width=12 if cutoff_days < 10 else (6 if cutoff_days < 25 else 3))
+                    .mark_bar()
                     .encode(
-                        x=alt.X('date:T'),
+                        x=alt.X('date:T', title=None),
                         y=alt.Y('o:Q'),
                         y2=alt.Y2('c:Q'),
-                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))  # 🌟 FIXED: identity='mapping'
+                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))
                     )
                 )
                 
                 final_chart = alt.layer(wicks, bodies)
             
-            st.altair_chart(final_chart.properties(width="container", height=350), use_container_width=True)
+            # 🌟 FIXED: Removed width="container" property to prevent Schema Error
+            st.altair_chart(final_chart.properties(height=350), use_container_width=True)
             
         with details_col:
             st.markdown("<br><br>", unsafe_allow_html=True)
