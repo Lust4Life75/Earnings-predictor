@@ -20,6 +20,22 @@ st.markdown("""
         border-radius: 10px;
         border-left: 5px solid #26a69a;
         margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    /* HIGH CONTRAST METRIC TEXT FIX */
+    .metric-card h4 {
+        color: #4b5563 !important; /* Crisp dark gray for the titles */
+        margin: 0 0 4px 0 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .metric-card h2 {
+        color: #111827 !important; /* Bold, high-contrast charcoal for the numbers */
+        margin: 0 !important;
+        font-size: 26px !important;
+        font-weight: 700 !important;
     }
     .footer {
         position: fixed;
