@@ -244,7 +244,7 @@ if not filtered_df.empty:
     """, unsafe_allow_html=True)
 
    # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES
+    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (FIXED)
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
@@ -268,7 +268,7 @@ if not filtered_df.empty:
                 cutoff_days = 2
                 label_text = "last 24 hours"
             elif time_frame == "1 Week View":
-                cutoff_days = 7  # Expanded to show full structural week curve
+                cutoff_days = 7  
                 label_text = "last week"
             elif time_frame == "1 Month View":
                 cutoff_days = 22
@@ -279,7 +279,7 @@ if not filtered_df.empty:
                 
             plot_df = stock_df.tail(cutoff_days).copy()
             
-            # 🌟 RE-ACTIVATED: CHART STYLE TOGGLE WIDGET
+            # CHART STYLE TOGGLE WIDGET
             chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
             
             # Performance calculations
@@ -300,12 +300,12 @@ if not filtered_df.empty:
             # Dynamic bounding to prevent squishing
             min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
             max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
-            padding = (max_price - min_price) * 0.1
+            padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
             y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
             
             if chart_style == "Line View":
-                # Clean, interpolated smooth line format
-                base_chart = (
+                # Clean line with point markers so short timelines (1W/1D) are completely intuitive
+                base_line = (
                     alt.Chart(plot_df)
                     .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
                     .encode(
@@ -313,16 +313,26 @@ if not filtered_df.empty:
                         y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
                     )
                 )
-                final_chart = base_chart
+                
+                # Add explicit circular dots on top of the line for clarity
+                points = (
+                    alt.Chart(plot_df)
+                    .mark_point(color=theme_color, size=40, filled=True)
+                    .encode(
+                        x=alt.X('date:T'),
+                        y=alt.Y('c:Q')
+                    )
+                )
+                
+                final_chart = alt.layer(base_line, points)
             else:
-                # 🌟 TRUE FINANCIAL CANDLESTICK RENDERING (O, H, L, C fields)
-                # Map default keys if Polygon columns are shorthand names (o=open, h=high, l=low, c=close)
+                # TRUE FINANCIAL CANDLESTICK RENDERING
                 for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
                     if col not in plot_df.columns:
                         plot_df[col] = plot_df[fallback]
                 
-                # Dynamic green/red rule identifier color matrix matching stock close outcomes
-                plot_df['color_rule'] = plot_df.apply(lambda row: '#097969' if row['c'] >= row['o'] else '#d2143a', axis=1)
+                # Assign explicit color codes based on day outcome
+                plot_df['color_code'] = plot_df.apply(lambda row: '#097969' if row['c'] >= row['o'] else '#d2143a', axis=1)
                 
                 # Build the thin vertical wick line
                 wicks = (
@@ -332,19 +342,19 @@ if not filtered_df.empty:
                         x=alt.X('date:T', title=None),
                         y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
                         y2=alt.Y2('h:Q'),
-                        color=alt.Color('color_rule:N', scale=alt.Scale(identity='alignment'))
+                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))  # 🌟 FIXED: identity='mapping'
                     )
                 )
                 
                 # Build the solid candlestick block body
                 bodies = (
                     alt.Chart(plot_df)
-                    .mark_bar(width=10 if cutoff_days < 25 else 4)
+                    .mark_bar(width=12 if cutoff_days < 10 else (6 if cutoff_days < 25 else 3))
                     .encode(
                         x=alt.X('date:T'),
                         y=alt.Y('o:Q'),
                         y2=alt.Y2('c:Q'),
-                        color=alt.Color('color_rule:N', scale=alt.Scale(identity='alignment'))
+                        color=alt.Color('color_code:N', scale=alt.Scale(identity='mapping'))  # 🌟 FIXED: identity='mapping'
                     )
                 )
                 
