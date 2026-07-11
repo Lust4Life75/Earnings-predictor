@@ -4,7 +4,7 @@ import datetime
 import requests
 
 # --------------------------------------------------------
-# 1. PAGE CONFIGURATION & PREMIUM THEME OVERRIDES
+# 1. PAGE CONFIGURATION & STYLING
 # --------------------------------------------------------
 st.set_page_config(
     page_title="Live Institutional Earnings Engine",
@@ -47,7 +47,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------
-# 2. UNLIMITED POLYGON.IO DATA PROCESSING PIPELINE
+# 2. DATA PROCESSING ENGINE
 # --------------------------------------------------------
 try:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -62,7 +62,9 @@ TICKER_DATABASE = {
     'AMZN': {'name': 'Amazon.com Inc.', 'sector': 'Consumer Cyclical', 'industry_avg_move': 6.8}
 }
 
-def fetch_polygon_market_analytics():
+# 🌟 CRITICAL FIX: We fetch the entire data frame ONE TIME immediately on launch
+@st.cache_resource
+def load_initial_dataset_once():
     today = datetime.date.today()
     start_date = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
@@ -72,10 +74,8 @@ def fetch_polygon_market_analytics():
     
     for ticker, info in TICKER_DATABASE.items():
         try:
-            # Starter plan provides unlimited structural pulls seamlessly
             url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
             res = requests.get(url, timeout=10)
-            
             if res.status_code != 200:
                 continue
                 
@@ -140,30 +140,11 @@ def fetch_polygon_market_analytics():
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
-def fetch_live_snapshot_price(ticker):
-    """Queries Polygon's modern v3 Snapshot API to grab live trades instantly via paid tier execution."""
-    try:
-        url = f"https://api.polygon.io/v3/snapshot/ticker/{ticker}?apiKey={API_KEY}"
-        res = requests.get(url, timeout=5)
-        
-        if res.status_code == 200:
-            data = res.json()
-            if 'results' in data:
-                tick_meta = data['results']
-                if 'last_trade' in tick_meta and 'price' in tick_meta['last_trade']:
-                    return tick_meta['last_trade']['price']
-                elif 'session' in tick_meta and 'close' in tick_meta['session']:
-                    return tick_meta['session']['close']
-                elif 'day' in tick_meta and 'close' in tick_meta['day']:
-                    return tick_meta['day']['close']
-    except Exception:
-        pass
-    return None
-
-df_live, raw_history = fetch_polygon_market_analytics()
+# Unpack the protected memory block cleanly
+df_live, raw_history = load_initial_dataset_once()
 
 # --------------------------------------------------------
-# 3. INTERACTIVE SUBSCRIPTION DASHBOARD LAYER
+# 3. INTERACTIVE DASHBOARD UI
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
 st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
@@ -183,7 +164,8 @@ time_horizon = st.radio(
 
 max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
 
-if not df_live.empty and "Sector" in df_live.columns:
+# 🌟 CRITICAL FIX: The toggle now only filters existing text arrays. No new web queries run.
+if not df_live.empty:
     filtered_df = df_live[
         (df_live["Sector"].isin(selected_sector)) & 
         (df_live["Days Left"] <= max_days_allowed)
@@ -191,7 +173,6 @@ if not df_live.empty and "Sector" in df_live.columns:
 else:
     filtered_df = pd.DataFrame()
 
-# Render out premium high-end multi-column asset cards
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.markdown(f"<div class='metric-card'><h4>Active Catalyst Pipeline</h4><h2>{len(filtered_df)} Companies</h2></div>", unsafe_allow_html=True)
@@ -205,10 +186,8 @@ with col4:
     st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
 
 st.write(f"### 📊 Target Matrix Calendar ({time_horizon})")
-st.caption("💡 **Tip:** Click the checkbox in the **'Select'** column to immediately extract the quantitative model rationale for that asset.")
 
 if not filtered_df.empty:
-    # RE-ACTIVATED: Sleek data spreadsheet layout rule logic safely mapped
     edited_df = st.data_editor(
         filtered_df[["Select", "Ticker", "Company", "Sector", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
         width="stretch",
@@ -230,11 +209,7 @@ if not filtered_df.empty:
     )
     
     selected_rows = edited_df[edited_df["Select"] == True]
-    
-    if not selected_rows.empty:
-        chosen_ticker = selected_rows.iloc[0]["Ticker"]
-    else:
-        chosen_ticker = filtered_df["Ticker"].iloc[0]
+    chosen_ticker = selected_rows.iloc[0]["Ticker"] if not selected_rows.empty else filtered_df["Ticker"].iloc[0]
         
     full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
     
@@ -248,17 +223,14 @@ if not filtered_df.empty:
     """, unsafe_allow_html=True)
 
     # --------------------------------------------------------
-    # 4. VISUAL MOMENTUM CHANNELS (UNLIMITED REAL-TIME FEEDS)
+    # 4. VISUALIZATION SYSTEM
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Momentum Diagnostics")
     
     if chosen_ticker in raw_history:
         stock_df = raw_history[chosen_ticker].copy()
-        
-        # Real-time asset stream query runs live on every framework toggle safely now!
-        live_price = fetch_live_snapshot_price(chosen_ticker)
-        current_price = live_price if live_price is not None else stock_df['c'].iloc[-1]
+        current_price = stock_df['c'].iloc[-1]
         
         chart_col, details_col = st.columns([3, 1])
         
@@ -274,10 +246,7 @@ if not filtered_df.empty:
             
         with details_col:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(
-                label="Streaming Execution Price" if live_price else "Official Market Close Price", 
-                value=f"${round(current_price, 2)}"
-            )
+            st.metric(label="Official Market Close Price", value=f"${round(current_price, 2)}")
             st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
             st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
 else:
