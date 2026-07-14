@@ -12,9 +12,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Consolidated high-contrast, premium dark fintech stylesheet
 st.markdown("""
     <style>
-    /* TRADING 212 FINTECH BACKGROUND GLOW FIX */
+    /* TRADING 212 FINTECH BACKGROUND GLOW */
     .stApp {
         background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
         background-attachment: fixed !important;
@@ -43,7 +44,7 @@ st.markdown("""
     }
     
     .metric-card h2 {
-        color: #ffffff !important; /* Crisp white for data numbers */
+        color: #ffffff !important; /* Crisp white for premium readability */
         margin: 0 !important;
         font-size: 24px !important;
         font-weight: 700 !important;
@@ -100,124 +101,6 @@ st.markdown("""
         font-size: 18px;
     }
     
-    .price-down {
-        color: #d2143a;
-        font-weight: bold;
-        font-size: 18px;
-    }
-    st.markdown(
-    """
-    <style>
-    /* TRADING 212 FINTECH BACKGROUND GLOW */
-    .stApp {
-        background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
-        background-attachment: fixed !important;
-    }
-
-    /* DARK MODE CARD OVERHAUL */
-    .metric-card {
-        background-color: rgba(255, 255, 255, 0.04) !important;
-        padding: 18px;
-        border-radius: 12px;
-        border-left: 4px solid #26a69a;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    
-    .metric-card h4 {
-        color: #9ca3af !important;
-        margin: 0 0 6px 0 !important;
-        font-size: 12px !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-    }
-    
-    .metric-card h2 {
-        color: #ffffff !important;
-        margin: 0 !important;
-        font-size: 24px !important;
-        font-weight: 700 !important;
-    }
-
-    /* RATIONALE PANEL TRANSLUCENT BOX */
-    .rationale-box {
-        background-color: rgba(255, 255, 255, 0.04) !important;
-        padding: 24px;
-        border-radius: 12px;
-        border-left: 5px solid #26a69a;
-        margin-top: 20px;
-    }
-    
-    .rationale-box h4 {
-        color: #ffffff !important;
-        font-weight: 700 !important;
-    }
-    
-    .rationale-box p {
-        color: #e5e7eb !important;
-        font-size: 15px !important;
-        line-height: 1.6 !important;
-    }
-
-    .price-up {
-        color: #097969;
-        font-weight: bold;
-    }
-    
-    .price-down {
-        color: #d2143a;
-        font-weight: bold;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-    .metric-card h2 {
-        color: #111827 !important; /* Bold, high-contrast charcoal for the numbers */
-        margin: 0 !important;
-        font-size: 26px !important;
-        font-weight: 700 !important;
-    }
-    .footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: #f1f1f1;
-        color: #666;
-        text-align: center;
-        padding: 10px;
-        font-size: 12px;
-        z-index: 100;
-    }
-    .main .block-container {
-        padding-bottom: 60px;
-    }
-    /* HIGH CONTRAST TYPOGRAPHY CORRECTION FIX */
-    .rationale-box {
-        background-color: #f0f4f8;
-        padding: 22px;
-        border-radius: 8px;
-        border-left: 6px solid #26a69a;
-        margin-top: 15px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .rationale-box h4 {
-        color: #111827 !important;
-        font-weight: 700 !important;
-        margin-bottom: 8px !important;
-    }
-    .rationale-box p {
-        color: #1f2937 !important;
-        font-size: 15px !important;
-        line-height: 1.6 !important;
-    }
-    .price-up {
-        color: #097969;
-        font-weight: bold;
-        font-size: 18px;
-    }
     .price-down {
         color: #d2143a;
         font-weight: bold;
@@ -396,12 +279,12 @@ if not filtered_df.empty:
         <div class='rationale-box'>
             <h4>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
             <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
-            <hr style='border: 0; border-top: 1px solid #cbd5e1; margin: 12px 0;'>
+            <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
             <p><strong>Analysis Summary:</strong> {full_meta['Model Rationale Summary']}</p>
         </div>
     """, unsafe_allow_html=True)
 
- # --------------------------------------------------------
+    # --------------------------------------------------------
     # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (COMPLIANT)
     # --------------------------------------------------------
     st.write("---")
@@ -494,7 +377,6 @@ if not filtered_df.empty:
                 # Determine directional metric conditions
                 plot_df['condition'] = plot_df['c'] >= plot_df['o']
                 
-                # 🌟 LOWERCASE FIX APPLIED HERE
                 color_condition = alt.condition(
                     predicate="datum.condition === true",
                     if_true=alt.value('#097969'),  
