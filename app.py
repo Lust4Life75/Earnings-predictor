@@ -105,16 +105,74 @@ st.markdown("""
         font-weight: bold;
         font-size: 18px;
     }
-    </style>
-    /* HIGH CONTRAST METRIC TEXT FIX */
+    st.markdown(
+    """
+    <style>
+    /* TRADING 212 FINTECH BACKGROUND GLOW */
+    .stApp {
+        background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
+        background-attachment: fixed !important;
+    }
+
+    /* DARK MODE CARD OVERHAUL */
+    .metric-card {
+        background-color: rgba(255, 255, 255, 0.04) !important;
+        padding: 18px;
+        border-radius: 12px;
+        border-left: 4px solid #26a69a;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
     .metric-card h4 {
-        color: #4b5563 !important; /* Crisp dark gray for the titles */
-        margin: 0 0 4px 0 !important;
-        font-size: 13px !important;
+        color: #9ca3af !important;
+        margin: 0 0 6px 0 !important;
+        font-size: 12px !important;
         font-weight: 600 !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.8px;
     }
+    
+    .metric-card h2 {
+        color: #ffffff !important;
+        margin: 0 !important;
+        font-size: 24px !important;
+        font-weight: 700 !important;
+    }
+
+    /* RATIONALE PANEL TRANSLUCENT BOX */
+    .rationale-box {
+        background-color: rgba(255, 255, 255, 0.04) !important;
+        padding: 24px;
+        border-radius: 12px;
+        border-left: 5px solid #26a69a;
+        margin-top: 20px;
+    }
+    
+    .rationale-box h4 {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    
+    .rationale-box p {
+        color: #e5e7eb !important;
+        font-size: 15px !important;
+        line-height: 1.6 !important;
+    }
+
+    .price-up {
+        color: #097969;
+        font-weight: bold;
+    }
+    
+    .price-down {
+        color: #d2143a;
+        font-weight: bold;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
     .metric-card h2 {
         color: #111827 !important; /* Bold, high-contrast charcoal for the numbers */
         margin: 0 !important;
