@@ -177,7 +177,7 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-# Fetches up to 3,000 active NASDAQ listings sorted correctly by market cap
+# Fetches up to 3,000 active NASDAQ listings sorted alphabetically (excluding market_cap column)
 @st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
     url = "https://api.polygon.io/v3/reference/tickers"
@@ -185,8 +185,8 @@ def get_all_nasdaq_tickers(api_key):
         "exchange": "XNAS",
         "market": "stocks",
         "active": "true",
-        "type": "CS",       # CS = Common Stocks only
-        "sort": "ticker",   # Fixed sort keys (must be ticker or name)
+        "type": "CS",
+        "sort": "ticker",
         "order": "asc",
         "limit": 1000,
         "apiKey": api_key
@@ -198,7 +198,6 @@ def get_all_nasdaq_tickers(api_key):
             data = response.json()
             results = data.get("results", [])
             all_tickers.extend(results)
-            # Cycle pages to pull deeper market listings
             while "next_url" in data and len(all_tickers) < 3500:
                 next_url = data["next_url"] + f"&apiKey={api_key}"
                 next_res = requests.get(next_url, timeout=10)
@@ -209,12 +208,9 @@ def get_all_nasdaq_tickers(api_key):
                     break
         if all_tickers:
             df = pd.DataFrame(all_tickers)
-            df = df[["ticker", "name", "market_cap"]].dropna()
-            # Sort locally by market cap descending so the largest are at the top
-            df = df.sort_values(by="market_cap", ascending=False)
-            df["market_cap_formatted"] = df["market_cap"].apply(
-                lambda x: f"${x:,.0f}" if x else "N/A"
-            )
+            # Only keep basic columns that are guaranteed to exist
+            df = df[["ticker", "name"]].dropna()
+            df = df.sort_values(by="ticker", ascending=True)
             return df
     except Exception as e:
         st.error(f"Error fetching NASDAQ directory: {e}")
@@ -284,8 +280,6 @@ def load_live_market_calendar():
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
-df_live, raw_history = load_live_market_calendar()
-
 # Helper to load historical daily bars for directory search queries
 @st.cache_data(ttl=86400)
 def load_fallback_history(ticker):
@@ -327,7 +321,7 @@ def load_intraday_data(ticker):
 st.title("🦅 Live Institutional Earnings Engine")
 st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
 
-# Retrieve dynamic NASDAQ listings sorted by market cap
+# Retrieve dynamic NASDAQ listings sorted alphabetically
 nasdaq_df = get_all_nasdaq_tickers(API_KEY)
 
 # Active Search Box Interface
@@ -335,8 +329,8 @@ chosen_ticker = "GOOGL" # Default starting ticker
 if not nasdaq_df.empty:
     st.write("")
     ticker_list = nasdaq_df["ticker"].tolist()
-    # Format choice selections cleanly
-    format_func = lambda x: f"{x} - {nasdaq_df[nasdaq_df['ticker'] == x]['name'].values[0]} ({nasdaq_df[nasdaq_df['ticker'] == x]['market_cap_formatted'].values[0]})"
+    # Format choice selections cleanly without market_cap
+    format_func = lambda x: f"{x} - {nasdaq_df[nasdaq_df['ticker'] == x]['name'].values[0]}"
     
     selected_search = st.selectbox(
         "🔍 Master Directory Search: Query any active NASDAQ company by name or ticker symbol",
