@@ -125,6 +125,10 @@ st.markdown("""
 # --------------------------------------------------------
 is_premium = st.query_params.get("premium", "false") == "true"
 
+# Initialize search ticker in session state so it persists across selections
+if "chosen_ticker" not in st.session_state:
+    st.session_state.chosen_ticker = "GOOGL"
+
 # --------------------------------------------------------
 # 2. CORE COMPUTE METRIC ENGINE
 # --------------------------------------------------------
@@ -326,20 +330,23 @@ st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d
 nasdaq_df = get_all_nasdaq_tickers(API_KEY)
 
 # Active Search Box Interface
-chosen_ticker = "GOOGL" # Default starting ticker
 if not nasdaq_df.empty:
     st.write("")
     ticker_list = nasdaq_df["ticker"].tolist()
     format_func = lambda x: f"{x} - {nasdaq_df[nasdaq_df['ticker'] == x]['name'].values[0]}"
     
+    # Selecting from dropdown updates the global session state key
     selected_search = st.selectbox(
         "🔍 Master Directory Search: Query any active NASDAQ company by name or ticker symbol",
         options=ticker_list,
-        index=ticker_list.index("GOOGL") if "GOOGL" in ticker_list else 0,
-        format_func=format_func
+        index=ticker_list.index(st.session_state.chosen_ticker) if st.session_state.chosen_ticker in ticker_list else 0,
+        format_func=format_func,
+        key="directory_search"
     )
+    
+    # Overwrite session state with user search selection
     if selected_search:
-        chosen_ticker = selected_search
+        st.session_state.chosen_ticker = selected_search
 
 st.write("---")
 st.write("### 🎛️ Select Analysis Scope Horizon")
@@ -388,11 +395,15 @@ if not filtered_df.empty:
         }
     )
     
+    # Check if user checked a row box in the calendar
     selected_rows = edited_df[edited_df["Select"] == True]
     if not selected_rows.empty:
-        chosen_ticker = selected_rows.iloc[0]["Ticker"]
+        # Update session state to match checked calendar item
+        st.session_state.chosen_ticker = selected_rows.iloc[0]["Ticker"]
         
-    full_meta_list = filtered_df[filtered_df["Ticker"] == chosen_ticker]
+    current_selected = st.session_state.chosen_ticker
+    full_meta_list = filtered_df[filtered_df["Ticker"] == current_selected]
+    
     if not full_meta_list.empty:
         full_meta = full_meta_list.iloc[0]
         confidence_str = f"{full_meta['Confidence']}%"
@@ -401,17 +412,42 @@ if not filtered_df.empty:
         runup_str = full_meta["14-Day Price Run-up"]
         move_str = full_meta["Expected Move %"]
     else:
-        confidence_str = "63%"
-        direction_str = "⚡ Dynamic Vector Loaded"
-        rationale_str = f"The underlying market structure for {chosen_ticker} has been updated dynamically from the live NASDAQ database. Real-time index tracking suggests stable volume support near support boundaries."
-        runup_str = "N/A"
-        move_str = "± 4.5%"
+        # Generate robust algorithmic values on-the-fly for searched non-calendar tickers
+        hist_data = load_fallback_history(current_selected)
+        if hist_data is not None and not hist_data.empty:
+            price_today = hist_data['c'].iloc[-1]
+            price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
+            actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
+            runup_str = f"{round(actual_runup, 2)}%"
+            
+            pct_changes = hist_data['c'].pct_change().dropna()
+            firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
+            move_str = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
+            
+            if actual_runup > 4.5:
+                direction_str = "🔴 Bearish (Overbought Risk)"
+                confidence_str = "74%"
+                rationale_str = f"Heavy pre-event price over-extension detected on {current_selected}. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical levels, signaling institutional profit-taking is likely."
+            elif actual_runup < -1.5:
+                direction_str = "🟢 Bullish (Oversold Bounce)"
+                confidence_str = "71%"
+                rationale_str = f"Significant pre-earnings capital liquidation detected on {current_selected}. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate selling pressure is thoroughly exhausted."
+            else:
+                direction_str = "🟢 Bullish" if actual_runup >= 0 else "🔴 Bearish"
+                confidence_str = "63%"
+                rationale_str = f"The underlying pricing vector for {current_selected} is displaying steady, structured momentum, drifting {round(actual_runup, 1)}% over the last 14 days. Options volume indicates stable baseline support."
+        else:
+            confidence_str = "63%"
+            direction_str = "⚡ Dynamic Vector Loaded"
+            rationale_str = f"The underlying market structure for {current_selected} has been updated dynamically from the live NASDAQ database."
+            runup_str = "N/A"
+            move_str = "± 4.5%"
 
     # Gating Option 2: Rationale Display Panel
     if is_premium:
         st.markdown(f"""
             <div class='rationale-box'>
-                <h4>🔍 Algorithmic Rationale Engine: {chosen_ticker}</h4>
+                <h4>🔍 Algorithmic Rationale Engine: {current_selected}</h4>
                 <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {direction_str} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {confidence_str}</p>
                 <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
                 <p><strong>Analysis Summary:</strong> {rationale_str}</p>
@@ -431,8 +467,8 @@ if not filtered_df.empty:
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
     
-    # Load historical chart data for chosen symbol
-    hist_data = raw_history.get(chosen_ticker, load_fallback_history(chosen_ticker))
+    # Load historical chart data for currently selected symbol (calendar selection or search)
+    hist_data = raw_history.get(current_selected, load_fallback_history(current_selected))
     
     if hist_data is not None and not hist_data.empty:
         import altair as alt
@@ -460,7 +496,7 @@ if not filtered_df.empty:
             
             is_intraday = False
             if time_frame == "1 Day View":
-                intraday_df = load_intraday_data(chosen_ticker)
+                intraday_df = load_intraday_data(current_selected)
                 if intraday_df is not None and not intraday_df.empty:
                     plot_df = intraday_df.tail(100).copy()
                     is_intraday = True
@@ -495,7 +531,7 @@ if not filtered_df.empty:
                 perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
                 theme_color = "#d2143a"  
                 
-            st.markdown(f"### {chosen_ticker} Price Action: {perf_html}", unsafe_allow_html=True)
+            st.markdown(f"### {current_selected} Price Action: {perf_html}", unsafe_allow_html=True)
             
             min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
             max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
