@@ -177,7 +177,7 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-# Fetches up to 3,000 active NASDAQ listings sorted alphabetically (excluding market_cap column)
+# Fetches up to 3,000 active NASDAQ listings sorted alphabetically
 @st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
     url = "https://api.polygon.io/v3/reference/tickers"
@@ -208,7 +208,6 @@ def get_all_nasdaq_tickers(api_key):
                     break
         if all_tickers:
             df = pd.DataFrame(all_tickers)
-            # Only keep basic columns that are guaranteed to exist
             df = df[["ticker", "name"]].dropna()
             df = df.sort_values(by="ticker", ascending=True)
             return df
@@ -280,6 +279,8 @@ def load_live_market_calendar():
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
+df_live, raw_history = load_live_market_calendar()
+
 # Helper to load historical daily bars for directory search queries
 @st.cache_data(ttl=86400)
 def load_fallback_history(ticker):
@@ -329,7 +330,6 @@ chosen_ticker = "GOOGL" # Default starting ticker
 if not nasdaq_df.empty:
     st.write("")
     ticker_list = nasdaq_df["ticker"].tolist()
-    # Format choice selections cleanly without market_cap
     format_func = lambda x: f"{x} - {nasdaq_df[nasdaq_df['ticker'] == x]['name'].values[0]}"
     
     selected_search = st.selectbox(
@@ -389,7 +389,6 @@ if not filtered_df.empty:
     )
     
     selected_rows = edited_df[edited_df["Select"] == True]
-    # If the user checks a box in the calendar, override the search selection
     if not selected_rows.empty:
         chosen_ticker = selected_rows.iloc[0]["Ticker"]
         
@@ -402,7 +401,6 @@ if not filtered_df.empty:
         runup_str = full_meta["14-Day Price Run-up"]
         move_str = full_meta["Expected Move %"]
     else:
-        # Fallback values for searched non-calendar tickers
         confidence_str = "63%"
         direction_str = "⚡ Dynamic Vector Loaded"
         rationale_str = f"The underlying market structure for {chosen_ticker} has been updated dynamically from the live NASDAQ database. Real-time index tracking suggests stable volume support near support boundaries."
