@@ -15,7 +15,7 @@ st.set_page_config(
 # Consolidated high-contrast, premium dark fintech stylesheet
 st.markdown("""
     <style>
-    /* TRADING 212 FINTECH BACKGROUND GLOW */
+    /* BACKGROUND GLOW */
     .stApp {
         background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
         background-attachment: fixed !important;
@@ -244,6 +244,26 @@ def load_live_market_calendar():
 df_live, raw_history = load_live_market_calendar()
 
 # --------------------------------------------------------
+# INTRADAY DATA FETCHER (FOR GRANULAR 1-DAY VIEW)
+# --------------------------------------------------------
+@st.cache_data(ttl=300)  # Cache for 5 minutes to remain lightweight
+def load_intraday_data(ticker):
+    today = datetime.date.today()
+    # Go back 4 days to guarantee fetching a full active market session over weekends/holidays
+    start_date = (today - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
+    end_date = today.strftime('%Y-%m-%d')
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
+    try:
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200 and 'results' in res.json():
+            df = pd.DataFrame(res.json()['results'])
+            df['date'] = pd.to_datetime(df['t'], unit='ms')
+            return df
+    except Exception:
+        pass
+    return None
+
+# --------------------------------------------------------
 # 4. DASHBOARD RENDER LAYER
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
@@ -350,25 +370,30 @@ if not filtered_df.empty:
                 if "Pro Only" in time_frame:
                     time_frame = "1 Week View"
             
-            # Dynamic cutoff settings
+            # Dynamic cutoff settings & Data Slicing
+            is_intraday = False
             if time_frame == "1 Day View":
-                cutoff_days = 2
+                intraday_df = load_intraday_data(chosen_ticker)
+                if intraday_df is not None and not intraday_df.empty:
+                    # Snatch the last active session's 5-minute ticks (approx 100 ticks)
+                    plot_df = intraday_df.tail(100).copy()
+                    is_intraday = True
+                else:
+                    plot_df = stock_df.tail(2).copy()
                 label_text = "last 24 hours"
-                bar_size = 40  
+                bar_size = 4  
             elif time_frame == "1 Week View":
-                cutoff_days = 7  
+                plot_df = stock_df.tail(7).copy()
                 label_text = "last week"
                 bar_size = 25  
             elif time_frame == "1 Month View":
-                cutoff_days = 22
+                plot_df = stock_df.tail(22).copy()
                 label_text = "last month"
                 bar_size = 12  
             else:
-                cutoff_days = 66
+                plot_df = stock_df.tail(66).copy()
                 label_text = "last 3 months"
                 bar_size = 4   
-                
-            plot_df = stock_df.tail(cutoff_days).copy()
             
             # CHART STYLE TOGGLE WIDGET
             chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
@@ -394,19 +419,23 @@ if not filtered_df.empty:
             padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
             y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
             
+            # Match date formatting
+            x_axis_format = '%H:%M' if is_intraday else '%b %d'
+            x_axis_title = 'Time (EST)' if is_intraday else 'Date'
+            
             if chart_style == "Line View":
                 base_line = (
                     alt.Chart(plot_df)
                     .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
                     .encode(
-                        x=alt.X('date:T', title=None),
+                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
                         y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
                     )
                 )
                 
                 points = (
                     alt.Chart(plot_df)
-                    .mark_point(color=theme_color, size=40, filled=True)
+                    .mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True)
                     .encode(
                         x=alt.X('date:T'),
                         y=alt.Y('c:Q')
@@ -433,7 +462,7 @@ if not filtered_df.empty:
                     alt.Chart(plot_df)
                     .mark_rule(strokeWidth=1.5)
                     .encode(
-                        x=alt.X('date:T', title=None),
+                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
                         y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
                         y2=alt.Y2('h:Q'),
                         color=color_condition
@@ -444,7 +473,7 @@ if not filtered_df.empty:
                     alt.Chart(plot_df)
                     .mark_bar(size=bar_size)
                     .encode(
-                        x=alt.X('date:T', title=None),
+                        x=alt.X('date:T'),
                         y=alt.Y('o:Q'),
                         y2=alt.Y2('c:Q'),
                         color=color_condition
