@@ -76,6 +76,17 @@ st.markdown("""
         line-height: 1.6 !important;
     }
 
+    /* PRO LOCK BOX */
+    .pro-lock-box {
+        background-color: rgba(255, 87, 87, 0.05) !important;
+        border: 1px dashed rgba(255, 87, 87, 0.3) !important;
+        border-left: 5px solid #ff5757 !important;
+        padding: 20px;
+        border-radius: 12px;
+        color: #e5e7eb;
+        margin: 15px 0;
+    }
+
     /* FOOTER INTEGRATION */
     .footer {
         position: fixed;
@@ -108,6 +119,11 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# --------------------------------------------------------
+# DETECT PREMIUM MEMBER STATE
+# --------------------------------------------------------
+is_premium = st.query_params.get("premium", "false") == "true"
 
 # --------------------------------------------------------
 # 2. CORE COMPUTE METRIC ENGINE
@@ -235,8 +251,15 @@ st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d
 st.write("---")
 
 st.write("### 🎛️ Select Analysis Scope Horizon")
-time_horizon = st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "30-Day Macro Outlook"], horizontal=True, label_visibility="collapsed")
-max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
+
+# Gating Option 1: Limit rolling forecast window for free users
+if is_premium:
+    time_horizon = st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "30-Day Macro Outlook"], horizontal=True, label_visibility="collapsed")
+    max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
+else:
+    st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "🔒 30-Day Macro Outlook (Pro Only)"], index=0, horizontal=True, label_visibility="collapsed")
+    time_horizon = "7-Day Catalyst Window"
+    max_days_allowed = 7
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
@@ -258,11 +281,16 @@ with col4:
 st.write(f"### 📊 Live Earnings Calendar Matrix ({time_horizon})")
 
 if not filtered_df.empty:
+    # Free users do not see "Predicted Direction", "Confidence", "14-Day Price Run-up"
+    columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
+    if is_premium:
+        columns_to_show += ["Predicted Direction", "Confidence", "14-Day Price Run-up"]
+
     edited_df = st.data_editor(
-        filtered_df[["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"]],
+        filtered_df[columns_to_show],
         width="stretch",
         hide_index=True,
-        disabled=["Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %", "Predicted Direction", "Confidence", "14-Day Price Run-up"],
+        disabled=columns_to_show[1:],
         column_config={
             "Confidence": st.column_config.ProgressColumn("Model Confidence", help="The algorithmic calculation certainty index", format="%d%%", min_value=0, max_value=100),
             "Days Left": st.column_config.NumberColumn("Days Left", format="%d days")
@@ -274,18 +302,26 @@ if not filtered_df.empty:
         
     full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
     
-    # RATIONALE DISPLAY PANEL WITH CORRECTIONS FOR ULTRA-READABILITY
-    st.markdown(f"""
-        <div class='rationale-box'>
-            <h4>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
-            <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
-            <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
-            <p><strong>Analysis Summary:</strong> {full_meta['Model Rationale Summary']}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # Gating Option 2: Rationale Display Panel
+    if is_premium:
+        st.markdown(f"""
+            <div class='rationale-box'>
+                <h4>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
+                <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
+                <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
+                <p><strong>Analysis Summary:</strong> {full_meta['Model Rationale Summary']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+            <div class='pro-lock-box'>
+                <h4>🔒 Algorithmic Rationale Locked (Pro Feature)</h4>
+                <p>Detailed predictions, model confidence analytics, and narrative summaries of pre-earnings institutional volume behavior require a Pro membership. Use the <strong>Upgrade to Pro</strong> button at the top of the page to unlock.</p>
+            </div>
+        """, unsafe_allow_html=True)
 
     # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM: NATIVE CANDLESTICKS & FLUID LINES (COMPLIANT)
+    # 5. VISUALIZATION SYSTEM
     # --------------------------------------------------------
     st.write("---")
     st.write("### 🔍 Live Charting & Horizon Performance Tracker")
@@ -297,12 +333,22 @@ if not filtered_df.empty:
         chart_col, details_col = st.columns([3, 1])
         
         with chart_col:
-            # Timeframe selection controls
-            time_frame = st.radio(
-                "Select Trading Range Window:", 
-                ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
-                horizontal=True
-            )
+            # Gating Option 3: Timeframe selection controls
+            if is_premium:
+                time_frame = st.radio(
+                    "Select Trading Range Window:", 
+                    ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
+                    horizontal=True
+                )
+            else:
+                time_frame = st.radio(
+                    "Select Trading Range Window:", 
+                    ["1 Day View", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], 
+                    index=1,
+                    horizontal=True
+                )
+                if "Pro Only" in time_frame:
+                    time_frame = "1 Week View"
             
             # Dynamic cutoff settings
             if time_frame == "1 Day View":
