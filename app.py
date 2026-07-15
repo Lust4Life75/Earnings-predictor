@@ -176,7 +176,58 @@ try:
 except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
+# --------------------------------------------------------
+# 3. LIVE DATA INTEGRATION PIPELINE
+# --------------------------------------------------------
+try:
+    API_KEY = st.secrets["POLYGON_API_KEY"]
+except Exception:
+    st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
+    st.stop()
 
+
+# ⭐ PASTE THE NEW FUNCTION HERE ⭐
+@st.cache_data(ttl=86400) # Cache for 24 hours
+def get_all_nasdaq_tickers(api_key):
+    url = "https://api.polygon.io/v3/reference/tickers"
+    params = {
+        "exchange": "XNAS",
+        "market": "stocks",
+        "active": "true",
+        "type": "CS",       # Common Stock
+        "sort": "market_cap",
+        "order": "desc",    # Largest market caps first
+        "limit": 1000,      
+        "apiKey": api_key
+    }
+    all_tickers = []
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            all_tickers.extend(results)
+            while "next_url" in data and len(all_tickers) < 3000:
+                next_url = data["next_url"] + f"&apiKey={api_key}"
+                next_res = requests.get(next_url, timeout=10)
+                if next_res.status_code == 200:
+                    data = next_res.json()
+                    all_tickers.extend(data.get("results", []))
+                else:
+                    break
+        if all_tickers:
+            df = pd.DataFrame(all_tickers)
+            df = df[["ticker", "name", "market_cap"]].dropna()
+            df["market_cap_formatted"] = df["market_cap"].apply(
+                lambda x: f"${x:,.0f}" if x else "N/A"
+            )
+            return df
+    except Exception as e:
+        st.error(f"Error fetching NASDAQ directory: {e}")
+    return pd.DataFrame()
+
+
+# (Your existing load_live_market_calendar and load_intraday_data functions continue below...)
 @st.cache_resource
 def load_live_market_calendar():
     today = datetime.date.today()
