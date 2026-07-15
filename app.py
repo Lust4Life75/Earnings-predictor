@@ -35,7 +35,7 @@ st.markdown("""
     }
     
     .metric-card h4 {
-        color: #9ca3af !important; /* Muted slate gray for subtitles */
+        color: #9ca3af !important;
         margin: 0 0 6px 0 !important;
         font-size: 12px !important;
         font-weight: 600 !important;
@@ -44,7 +44,7 @@ st.markdown("""
     }
     
     .metric-card h2 {
-        color: #ffffff !important; /* Crisp white for premium readability */
+        color: #ffffff !important;
         margin: 0 !important;
         font-size: 24px !important;
         font-weight: 700 !important;
@@ -71,7 +71,7 @@ st.markdown("""
     }
     
     .rationale-box p {
-        color: #e5e7eb !important; /* High-readability silver text */
+        color: #e5e7eb !important;
         font-size: 15px !important;
         line-height: 1.6 !important;
     }
@@ -177,7 +177,7 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-# Fetches up to 3,000 active NASDAQ listings sorted by market capitalization
+# Fetches up to 3,000 active NASDAQ listings sorted correctly by market cap
 @st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
     url = "https://api.polygon.io/v3/reference/tickers"
@@ -185,10 +185,10 @@ def get_all_nasdaq_tickers(api_key):
         "exchange": "XNAS",
         "market": "stocks",
         "active": "true",
-        "type": "CS",       # CS = Common Stocks only
-        "sort": "market_cap",
-        "order": "desc",    # Descending places highest caps first
-        "limit": 1000,      # Page size
+        "type": "CS",
+        "sort": "ticker",  # Fixed API sort parameters to avoid failures
+        "order": "asc",
+        "limit": 1000,
         "apiKey": api_key
     }
     all_tickers = []
@@ -196,10 +196,9 @@ def get_all_nasdaq_tickers(api_key):
         response = requests.get(url, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            results = data.get("results", [])
-            all_tickers.extend(results)
-            # Cycle pages to pull deeper market listings
-            while "next_url" in data and len(all_tickers) < 3500:
+            all_tickers.extend(data.get("results", []))
+            
+            while "next_url" in data and len(all_tickers) < 3000:
                 next_url = data["next_url"] + f"&apiKey={api_key}"
                 next_res = requests.get(next_url, timeout=10)
                 if next_res.status_code == 200:
@@ -207,15 +206,19 @@ def get_all_nasdaq_tickers(api_key):
                     all_tickers.extend(data.get("results", []))
                 else:
                     break
+        
         if all_tickers:
             df = pd.DataFrame(all_tickers)
+            # Retain only rows with valid market cap data
             df = df[["ticker", "name", "market_cap"]].dropna()
+            # Sort local results by market cap descending
+            df = df.sort_values(by="market_cap", ascending=False)
             df["market_cap_formatted"] = df["market_cap"].apply(
                 lambda x: f"${x:,.0f}" if x else "N/A"
             )
             return df
     except Exception as e:
-        st.error(f"Error fetching NASDAQ directory: {e}")
+        pass
     return pd.DataFrame()
 
 @st.cache_resource
@@ -284,6 +287,24 @@ def load_live_market_calendar():
 
 df_live, raw_history = load_live_market_calendar()
 
+# Helper to load historical daily bars for search queries
+@st.cache_data(ttl=86400)
+def load_fallback_history(ticker):
+    today = datetime.date.today()
+    hist_start = (today - datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+    hist_end = today.strftime('%Y-%m-%d')
+    hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
+    try:
+        h_res = requests.get(hist_url, timeout=5)
+        if h_res.status_code == 200 and 'results' in h_res.json():
+            hist_df = pd.DataFrame(h_res.json()['results'])
+            hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
+            hist_df.set_index('date', inplace=True)
+            return hist_df
+    except Exception:
+        pass
+    return None
+
 # INTRADAY DATA FETCHER (FOR GRANULAR 1-DAY VIEW)
 @st.cache_data(ttl=300)
 def load_intraday_data(ticker):
@@ -306,236 +327,26 @@ def load_intraday_data(ticker):
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
 st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
-st.write("---")
 
-# Dynamic NASDAQ Directory Loader (Pulling full market cap-ordered list)
+# Retrieve dynamic NASDAQ listings sorted by market cap
 nasdaq_df = get_all_nasdaq_tickers(API_KEY)
 
+# Search Bar Interface
+chosen_ticker = "GOOGL" # Default backup ticker
 if not nasdaq_df.empty:
-    st.write(f"### 🏢 Active NASDAQ Listings Directory ({len(nasdaq_df):,} Companies Sorted by Cap)")
-    search_query = st.text_input("🔍 Search ticker or company name:", "").upper()
+    st.write("")
+    ticker_list = nasdaq_df["ticker"].tolist()
+    # Format choice selections cleanly
+    format_func = lambda x: f"{x} - {nasdaq_df[nasdaq_df['ticker'] == x]['name'].values[0]} ({nasdaq_df[nasdaq_df['ticker'] == x]['market_cap_formatted'].values[0]})"
     
-    display_df = nasdaq_df
-    if search_query:
-        display_df = nasdaq_df[
-            (nasdaq_df["ticker"].str.contains(search_query)) | 
-            (nasdaq_df["name"].str.upper().str.contains(search_query))
-        ]
-        
-    st.dataframe(
-        display_df[["ticker", "name", "market_cap_formatted"]],
-        use_container_width=True,
-        hide_index=True
+    selected_search = st.selectbox(
+        "🔍 Master Directory Search: Query any NASDAQ company by name or ticker",
+        options=ticker_list,
+        index=ticker_list.index("GOOGL") if "GOOGL" in ticker_list else 0,
+        format_func=format_func
     )
+    if selected_search:
+        chosen_ticker = selected_search
+
 st.write("---")
-
-st.write("### 🎛️ Select Analysis Scope Horizon")
-
-# Gating Option 1: Limit rolling forecast window for free users
-if is_premium:
-    time_horizon = st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "30-Day Macro Outlook"], horizontal=True, label_visibility="collapsed")
-    max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
-else:
-    st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "🔒 30-Day Macro Outlook (Pro Only)"], index=0, horizontal=True, label_visibility="collapsed")
-    time_horizon = "7-Day Catalyst Window"
-    max_days_allowed = 7
-
-if not df_live.empty:
-    filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
-else:
-    filtered_df = pd.DataFrame()
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown(f"<div class='metric-card'><h4>Active Catalyst Pipeline</h4><h2>{len(filtered_df)} Companies</h2></div>", unsafe_allow_html=True)
-with col2:
-    bull_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bullish")]) if not filtered_df.empty else 0
-    st.markdown(f"<div class='metric-card'><h4>Aggregated Bullish Signals</h4><h2>{bull_count} Stocks</h2></div>", unsafe_allow_html=True)
-with col3:
-    bear_count = len(filtered_df[filtered_df["Predicted Direction"].str.contains("Bearish")]) if not filtered_df.empty else 0
-    st.markdown(f"<div class='metric-card'><h4>Aggregated Bearish Signals</h4><h2>{bear_count} Stocks</h2></div>", unsafe_allow_html=True)
-with col4:
-    st.markdown(f"<div class='metric-card'><h4>Selected Scope View</h4><h2>{max_days_allowed} Days Max</h2></div>", unsafe_allow_html=True)
-
-st.write(f"### 📊 Live Earnings Calendar Matrix ({time_horizon})")
-
-if not filtered_df.empty:
-    columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
-    if is_premium:
-        columns_to_show += ["Predicted Direction", "Confidence", "14-Day Price Run-up"]
-
-    edited_df = st.data_editor(
-        filtered_df[columns_to_show],
-        width="stretch",
-        hide_index=True,
-        disabled=columns_to_show[1:],
-        column_config={
-            "Confidence": st.column_config.ProgressColumn("Model Confidence", help="The algorithmic calculation certainty index", format="%d%%", min_value=0, max_value=100),
-            "Days Left": st.column_config.NumberColumn("Days Left", format="%d days")
-        }
-    )
-    
-    selected_rows = edited_df[edited_df["Select"] == True]
-    chosen_ticker = selected_rows.iloc[0]["Ticker"] if not selected_rows.empty else filtered_df["Ticker"].iloc[0]
-        
-    full_meta = filtered_df[filtered_df["Ticker"] == chosen_ticker].iloc[0]
-    
-    # Gating Option 2: Rationale Display Panel
-    if is_premium:
-        st.markdown(f"""
-            <div class='rationale-box'>
-                <h4>🔍 Algorithmic Rationale Engine: {full_meta['Ticker']} ({full_meta['Company']})</h4>
-                <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {full_meta['Predicted Direction']} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {full_meta['Confidence']}%</p>
-                <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
-                <p><strong>Analysis Summary:</strong> {full_meta['Model Rationale Summary']}</p>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-            <div class='pro-lock-box'>
-                <h4>🔒 Algorithmic Rationale Locked (Pro Feature)</h4>
-                <p>Detailed predictions, model confidence analytics, and narrative summaries of pre-earnings institutional volume behavior require a Pro membership. Use the <strong>Upgrade to Pro</strong> button at the top of the page to unlock.</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM
-    # --------------------------------------------------------
-    st.write("---")
-    st.write("### 🔍 Live Charting & Horizon Performance Tracker")
-    
-    if chosen_ticker in raw_history:
-        import altair as alt
-        stock_df = raw_history[chosen_ticker].copy().reset_index()
-        
-        chart_col, details_col = st.columns([3, 1])
-        
-        with chart_col:
-            # Gating Option 3: Timeframe selection controls
-            if is_premium:
-                time_frame = st.radio(
-                    "Select Trading Range Window:", 
-                    ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
-                    horizontal=True
-                )
-            else:
-                time_frame = st.radio(
-                    "Select Trading Range Window:", 
-                    ["1 Day View", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], 
-                    index=1,
-                    horizontal=True
-                )
-                if "Pro Only" in time_frame:
-                    time_frame = "1 Week View"
-            
-            is_intraday = False
-            if time_frame == "1 Day View":
-                intraday_df = load_intraday_data(chosen_ticker)
-                if intraday_df is not None and not intraday_df.empty:
-                    plot_df = intraday_df.tail(100).copy()
-                    is_intraday = True
-                else:
-                    plot_df = stock_df.tail(2).copy()
-                label_text = "last 24 hours"
-                bar_size = 4  
-            elif time_frame == "1 Week View":
-                plot_df = stock_df.tail(7).copy()
-                label_text = "last week"
-                bar_size = 25  
-            elif time_frame == "1 Month View":
-                plot_df = stock_df.tail(22).copy()
-                label_text = "last month"
-                bar_size = 12  
-            else:
-                plot_df = stock_df.tail(66).copy()
-                label_text = "last 3 months"
-                bar_size = 4   
-            
-            chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
-            
-            start_val = plot_df['c'].iloc[0]
-            end_val = plot_df['c'].iloc[-1]
-            nominal_change = end_val - start_val
-            pct_change = (nominal_change / start_val) * 100
-            
-            if nominal_change >= 0:
-                perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#097969"  
-            else:
-                perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#d2143a"  
-                
-            st.markdown(f"### {chosen_ticker} Price Action: {perf_html}", unsafe_allow_html=True)
-            
-            min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
-            max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
-            padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
-            y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
-            
-            x_axis_format = '%H:%M' if is_intraday else '%b %d'
-            x_axis_title = 'Time (EST)' if is_intraday else 'Date'
-            
-            if chart_style == "Line View":
-                base_line = (
-                    alt.Chart(plot_df)
-                    .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
-                    .encode(
-                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                        y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
-                    )
-                )
-                
-                points = (
-                    alt.Chart(plot_df)
-                    .mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True)
-                    .encode(
-                        x=alt.X('date:T'),
-                        y=alt.Y('c:Q')
-                    )
-                )
-                
-                final_chart = alt.layer(base_line, points)
-            else:
-                for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
-                    if col not in plot_df.columns:
-                        plot_df[col] = plot_df[fallback]
-                
-                plot_df['condition'] = plot_df['c'] >= plot_df['o']
-                
-                color_condition = alt.condition(
-                    predicate="datum.condition === true",
-                    if_true=alt.value('#097969'),  
-                    if_false=alt.value('#d2143a')  
-                )
-                
-                wicks = (
-                    alt.Chart(plot_df)
-                    .mark_rule(strokeWidth=1.5)
-                    .encode(
-                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                        y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
-                        y2=alt.Y2('h:Q'),
-                        color=color_condition
-                    )
-                )
-                
-                bodies = (
-                    alt.Chart(plot_df)
-                    .mark_bar(size=bar_size)
-                    .encode(
-                        x=alt.X('date:T'),
-                        y=alt.Y('o:Q'),
-                        y2=alt.Y2('c:Q'),
-                        color=color_condition
-                    )
-                )
-                
-                final_chart = alt.layer(wicks, bodies)
-            
-            st.altair_chart(final_chart.properties(height=350), use_container_width=True)
-            
-        with details_col:
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            st.metric(label="Official Market Close Price", value=f"${round(end_val, 2)}")
-            st.metric(label="14-Day Vector Run-up Trend", value=full_meta["14-Day Price Run-up"])
-            st.metric(label="Calculated Expected Volatility Move", value=full_meta["Expected Move %"])
+st.write("### 🎛 ...
