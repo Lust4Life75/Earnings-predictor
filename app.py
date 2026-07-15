@@ -176,28 +176,19 @@ try:
 except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
-# --------------------------------------------------------
-# 3. LIVE DATA INTEGRATION PIPELINE
-# --------------------------------------------------------
-try:
-    API_KEY = st.secrets["POLYGON_API_KEY"]
-except Exception:
-    st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
-    st.stop()
 
-
-# ⭐ PASTE THE NEW FUNCTION HERE ⭐
-@st.cache_data(ttl=86400) # Cache for 24 hours
+# Fetches up to 3,000 active NASDAQ listings sorted by market capitalization
+@st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
     url = "https://api.polygon.io/v3/reference/tickers"
     params = {
         "exchange": "XNAS",
         "market": "stocks",
         "active": "true",
-        "type": "CS",       # Common Stock
+        "type": "CS",       # CS = Common Stocks only
         "sort": "market_cap",
-        "order": "desc",    # Largest market caps first
-        "limit": 1000,      
+        "order": "desc",    # Descending places highest caps first
+        "limit": 1000,      # Page size
         "apiKey": api_key
     }
     all_tickers = []
@@ -207,7 +198,8 @@ def get_all_nasdaq_tickers(api_key):
             data = response.json()
             results = data.get("results", [])
             all_tickers.extend(results)
-            while "next_url" in data and len(all_tickers) < 3000:
+            # Cycle pages to pull deeper market listings
+            while "next_url" in data and len(all_tickers) < 3500:
                 next_url = data["next_url"] + f"&apiKey={api_key}"
                 next_res = requests.get(next_url, timeout=10)
                 if next_res.status_code == 200:
@@ -226,8 +218,6 @@ def get_all_nasdaq_tickers(api_key):
         st.error(f"Error fetching NASDAQ directory: {e}")
     return pd.DataFrame()
 
-
-# (Your existing load_live_market_calendar and load_intraday_data functions continue below...)
 @st.cache_resource
 def load_live_market_calendar():
     today = datetime.date.today()
@@ -294,13 +284,10 @@ def load_live_market_calendar():
 
 df_live, raw_history = load_live_market_calendar()
 
-# --------------------------------------------------------
 # INTRADAY DATA FETCHER (FOR GRANULAR 1-DAY VIEW)
-# --------------------------------------------------------
-@st.cache_data(ttl=300)  # Cache for 5 minutes to remain lightweight
+@st.cache_data(ttl=300)
 def load_intraday_data(ticker):
     today = datetime.date.today()
-    # Go back 4 days to guarantee fetching a full active market session over weekends/holidays
     start_date = (today - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
@@ -319,6 +306,27 @@ def load_intraday_data(ticker):
 # --------------------------------------------------------
 st.title("🦅 Live Institutional Earnings Engine")
 st.subheader(f"Data Matrix Current As Of: {datetime.date.today().strftime('%B %d, %Y')}")
+st.write("---")
+
+# Dynamic NASDAQ Directory Loader (Pulling full market cap-ordered list)
+nasdaq_df = get_all_nasdaq_tickers(API_KEY)
+
+if not nasdaq_df.empty:
+    st.write(f"### 🏢 Active NASDAQ Listings Directory ({len(nasdaq_df):,} Companies Sorted by Cap)")
+    search_query = st.text_input("🔍 Search ticker or company name:", "").upper()
+    
+    display_df = nasdaq_df
+    if search_query:
+        display_df = nasdaq_df[
+            (nasdaq_df["ticker"].str.contains(search_query)) | 
+            (nasdaq_df["name"].str.upper().str.contains(search_query))
+        ]
+        
+    st.dataframe(
+        display_df[["ticker", "name", "market_cap_formatted"]],
+        use_container_width=True,
+        hide_index=True
+    )
 st.write("---")
 
 st.write("### 🎛️ Select Analysis Scope Horizon")
@@ -352,7 +360,6 @@ with col4:
 st.write(f"### 📊 Live Earnings Calendar Matrix ({time_horizon})")
 
 if not filtered_df.empty:
-    # Free users do not see "Predicted Direction", "Confidence", "14-Day Price Run-up"
     columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
     if is_premium:
         columns_to_show += ["Predicted Direction", "Confidence", "14-Day Price Run-up"]
@@ -421,12 +428,10 @@ if not filtered_df.empty:
                 if "Pro Only" in time_frame:
                     time_frame = "1 Week View"
             
-            # Dynamic cutoff settings & Data Slicing
             is_intraday = False
             if time_frame == "1 Day View":
                 intraday_df = load_intraday_data(chosen_ticker)
                 if intraday_df is not None and not intraday_df.empty:
-                    # Snatch the last active session's 5-minute ticks (approx 100 ticks)
                     plot_df = intraday_df.tail(100).copy()
                     is_intraday = True
                 else:
@@ -446,10 +451,8 @@ if not filtered_df.empty:
                 label_text = "last 3 months"
                 bar_size = 4   
             
-            # CHART STYLE TOGGLE WIDGET
             chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
             
-            # Performance calculations
             start_val = plot_df['c'].iloc[0]
             end_val = plot_df['c'].iloc[-1]
             nominal_change = end_val - start_val
@@ -464,13 +467,11 @@ if not filtered_df.empty:
                 
             st.markdown(f"### {chosen_ticker} Price Action: {perf_html}", unsafe_allow_html=True)
             
-            # Dynamic bounding to prevent squishing
             min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
             max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
             padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
             y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
             
-            # Match date formatting
             x_axis_format = '%H:%M' if is_intraday else '%b %d'
             x_axis_title = 'Time (EST)' if is_intraday else 'Date'
             
@@ -495,12 +496,10 @@ if not filtered_df.empty:
                 
                 final_chart = alt.layer(base_line, points)
             else:
-                # TRUE FINANCIAL CANDLESTICK RENDERING
                 for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
                     if col not in plot_df.columns:
                         plot_df[col] = plot_df[fallback]
                 
-                # Determine directional metric conditions
                 plot_df['condition'] = plot_df['c'] >= plot_df['o']
                 
                 color_condition = alt.condition(
