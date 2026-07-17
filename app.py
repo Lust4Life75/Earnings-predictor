@@ -223,7 +223,13 @@ def get_all_nasdaq_tickers(api_key):
 def load_live_market_calendar():
     today = datetime.date.today()
     calendar_url = f"https://api.polygon.io/v1/partners/benzinga/earnings"
-    params = {"apiKey": API_KEY, "limit": 60}
+    
+    # THE FIX: Tell Polygon to only pull earnings from today onward
+    params = {
+        "apiKey": API_KEY, 
+        "limit": 60,
+        "date.gte": today.strftime('%Y-%m-%d')
+    }
     
     live_records = []
     historical_data_frames = {}
