@@ -379,6 +379,7 @@ with col4:
 
 st.write(f"### 📊 Live Earnings Calendar Matrix ({time_horizon})")
 
+# RENDER CALENDAR TABLE IF TRAFFIC EXISTS
 if not filtered_df.empty:
     columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
     if is_premium:
@@ -386,7 +387,7 @@ if not filtered_df.empty:
 
     edited_df = st.data_editor(
         filtered_df[columns_to_show],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         disabled=columns_to_show[1:],
         column_config={
@@ -398,210 +399,218 @@ if not filtered_df.empty:
     # Check if user checked a row box in the calendar
     selected_rows = edited_df[edited_df["Select"] == True]
     if not selected_rows.empty:
-        # Update session state to match checked calendar item
         st.session_state.chosen_ticker = selected_rows.iloc[0]["Ticker"]
-        
-    current_selected = st.session_state.chosen_ticker
+else:
+    st.info("No corporate assets scheduled for public metrics disclosure within this designated timeline.")
+
+# ========================================================
+# DECOUPLED COMPUTE LAYER (Runs independently of calendar window)
+# ========================================================
+current_selected = st.session_state.chosen_ticker
+
+if not filtered_df.empty:
     full_meta_list = filtered_df[filtered_df["Ticker"] == current_selected]
-    
-    if not full_meta_list.empty:
-        full_meta = full_meta_list.iloc[0]
-        confidence_str = f"{full_meta['Confidence']}%"
-        direction_str = full_meta['Predicted Direction']
-        rationale_str = full_meta['Model Rationale Summary']
-        runup_str = full_meta["14-Day Price Run-up"]
-        move_str = full_meta["Expected Move %"]
-    else:
-        # Generate robust algorithmic values on-the-fly for searched non-calendar tickers
-        hist_data = load_fallback_history(current_selected)
-        if hist_data is not None and not hist_data.empty:
-            price_today = hist_data['c'].iloc[-1]
-            price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
-            actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
-            runup_str = f"{round(actual_runup, 2)}%"
-            
-            pct_changes = hist_data['c'].pct_change().dropna()
-            firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
-            move_str = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
-            
-            if actual_runup > 4.5:
-                direction_str = "🔴 Bearish (Overbought Risk)"
-                confidence_str = "74%"
-                rationale_str = f"Heavy pre-event price over-extension detected on {current_selected}. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical levels, signaling institutional profit-taking is likely."
-            elif actual_runup < -1.5:
-                direction_str = "🟢 Bullish (Oversold Bounce)"
-                confidence_str = "71%"
-                rationale_str = f"Significant pre-earnings capital liquidation detected on {current_selected}. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate selling pressure is thoroughly exhausted."
-            else:
-                direction_str = "🟢 Bullish" if actual_runup >= 0 else "🔴 Bearish"
-                confidence_str = "63%"
-                rationale_str = f"The underlying pricing vector for {current_selected} is displaying steady, structured momentum, drifting {round(actual_runup, 1)}% over the last 14 days. Options volume indicates stable baseline support."
-        else:
-            confidence_str = "63%"
-            direction_str = "⚡ Dynamic Vector Loaded"
-            rationale_str = f"The underlying market structure for {current_selected} has been updated dynamically from the live NASDAQ database."
-            runup_str = "N/A"
-            move_str = "± 4.5%"
+else:
+    full_meta_list = pd.DataFrame()
 
-    # Gating Option 2: Rationale Display Panel
-    if is_premium:
-        st.markdown(f"""
-            <div class='rationale-box'>
-                <h4>🔍 Algorithmic Rationale Engine: {current_selected}</h4>
-                <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {direction_str} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {confidence_str}</p>
-                <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
-                <p><strong>Analysis Summary:</strong> {rationale_str}</p>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-            <div class='pro-lock-box'>
-                <h4>🔒 Algorithmic Rationale Locked (Pro Feature)</h4>
-                <p>Detailed predictions, model confidence analytics, and narrative summaries of pre-earnings institutional volume behavior require a Pro membership. Use the <strong>Upgrade to Pro</strong> button at the top of the page to unlock.</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # --------------------------------------------------------
-    # 5. VISUALIZATION SYSTEM
-    # --------------------------------------------------------
-    st.write("---")
-    st.write("### 🔍 Live Charting & Horizon Performance Tracker")
-    
-    # Load historical chart data for currently selected symbol (calendar selection or search)
-    hist_data = raw_history.get(current_selected, load_fallback_history(current_selected))
-    
+if not full_meta_list.empty:
+    full_meta = full_meta_list.iloc[0]
+    confidence_str = f"{full_meta['Confidence']}%"
+    direction_str = full_meta['Predicted Direction']
+    rationale_str = full_meta['Model Rationale Summary']
+    runup_str = full_meta["14-Day Price Run-up"]
+    move_str = full_meta["Expected Move %"]
+else:
+    # Generate robust algorithmic values on-the-fly for searched non-calendar tickers
+    hist_data = load_fallback_history(current_selected)
     if hist_data is not None and not hist_data.empty:
-        import altair as alt
-        stock_df = hist_data.copy().reset_index()
+        price_today = hist_data['c'].iloc[-1]
+        price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
+        actual_runup = ((price_today - price_14d_ago) / price_14d_ago) * 100
+        runup_str = f"{round(actual_runup, 2)}%"
         
-        chart_col, details_col = st.columns([3, 1])
+        pct_changes = hist_data['c'].pct_change().dropna()
+        firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
+        move_str = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
         
-        with chart_col:
-            # Gating Option 3: Timeframe selection controls
-            if is_premium:
-                time_frame = st.radio(
-                    "Select Trading Range Window:", 
-                    ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
-                    horizontal=True
-                )
+        if actual_runup > 4.5:
+            direction_str = "🔴 Bearish (Overbought Risk)"
+            confidence_str = "74%"
+            rationale_str = f"Heavy pre-event price over-extension detected on {current_selected}. The trailing 14-day run-up of {round(actual_runup, 1)}% sits structurally higher than traditional historical levels, signaling institutional profit-taking is likely."
+        elif actual_runup < -1.5:
+            direction_str = "🟢 Bullish (Oversold Bounce)"
+            confidence_str = "71%"
+            rationale_str = f"Significant pre-earnings capital liquidation detected on {current_selected}. With a sharp 14-day price decline of {round(actual_runup, 1)}%, technical metrics indicate selling pressure is thoroughly exhausted."
+        else:
+            direction_str = "🟢 Bullish" if actual_runup >= 0 else "🔴 Bearish"
+            confidence_str = "63%"
+            rationale_str = f"The underlying pricing vector for {current_selected} is displaying steady, structured momentum, drifting {round(actual_runup, 1)}% over the last 14 days. Options volume indicates stable baseline support."
+    else:
+        confidence_str = "63%"
+        direction_str = "⚡ Dynamic Vector Loaded"
+        rationale_str = f"The underlying market structure for {current_selected} has been updated dynamically from the live NASDAQ database."
+        runup_str = "N/A"
+        move_str = "± 4.5%"
+
+# Gating Option 2: Rationale Display Panel (Always Visible)
+if is_premium:
+    st.markdown(f"""
+        <div class='rationale-box'>
+            <h4>🔍 Algorithmic Rationale Engine: {current_selected}</h4>
+            <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {direction_str} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {confidence_str}</p>
+            <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
+            <p><strong>Analysis Summary:</strong> {rationale_str}</p>
+        </div>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown(f"""
+        <div class='pro-lock-box'>
+            <h4>🔒 Algorithmic Rationale Locked (Pro Feature)</h4>
+            <p>Detailed predictions, model confidence analytics, and narrative summaries of pre-earnings institutional volume behavior require a Pro membership. Use the <strong>Upgrade to Pro</strong> button at the top of the page to unlock.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+# --------------------------------------------------------
+# 5. VISUALIZATION SYSTEM (Always Visible)
+# --------------------------------------------------------
+st.write("---")
+st.write("### 🔍 Live Charting & Horizon Performance Tracker")
+
+# Load historical chart data for currently selected symbol
+hist_data = raw_history.get(current_selected, load_fallback_history(current_selected))
+
+if hist_data is not None and not hist_data.empty:
+    import altair as alt
+    stock_df = hist_data.copy().reset_index()
+    
+    chart_col, details_col = st.columns([3, 1])
+    
+    with chart_col:
+        # Gating Option 3: Timeframe selection controls
+        if is_premium:
+            time_frame = st.radio(
+                "Select Trading Range Window:", 
+                ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
+                horizontal=True
+            )
+        else:
+            time_frame = st.radio(
+                "Select Trading Range Window:", 
+                ["1 Day View", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], 
+                index=1,
+                horizontal=True
+            )
+            if "Pro Only" in time_frame:
+                time_frame = "1 Week View"
+        
+        is_intraday = False
+        if time_frame == "1 Day View":
+            intraday_df = load_intraday_data(current_selected)
+            if intraday_df is not None and not intraday_df.empty:
+                plot_df = intraday_df.tail(100).copy()
+                is_intraday = True
             else:
-                time_frame = st.radio(
-                    "Select Trading Range Window:", 
-                    ["1 Day View", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], 
-                    index=1,
-                    horizontal=True
+                plot_df = stock_df.tail(2).copy()
+            label_text = "last 24 hours"
+            bar_size = 4  
+        elif time_frame == "1 Week View":
+            plot_df = stock_df.tail(7).copy()
+            label_text = "last week"
+            bar_size = 25  
+        elif time_frame == "1 Month View":
+            plot_df = stock_df.tail(22).copy()
+            label_text = "last month"
+            bar_size = 12  
+        else:
+            plot_df = stock_df.tail(66).copy()
+            label_text = "last 3 months"
+            bar_size = 4   
+        
+        chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
+        
+        start_val = plot_df['c'].iloc[0]
+        end_val = plot_df['c'].iloc[-1]
+        nominal_change = end_val - start_val
+        pct_change = (nominal_change / start_val) * 100
+        
+        if nominal_change >= 0:
+            perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+            theme_color = "#097969"  
+        else:
+            perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
+            theme_color = "#d2143a"  
+            
+        st.markdown(f"### {current_selected} Price Action: {perf_html}", unsafe_allow_html=True)
+        
+        min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
+        max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
+        padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
+        y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
+        
+        x_axis_format = '%H:%M' if is_intraday else '%b %d'
+        x_axis_title = 'Time (EST)' if is_intraday else 'Date'
+        
+        if chart_style == "Line View":
+            base_line = (
+                alt.Chart(plot_df)
+                .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
+                .encode(
+                    x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
+                    y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
                 )
-                if "Pro Only" in time_frame:
-                    time_frame = "1 Week View"
+            )
             
-            is_intraday = False
-            if time_frame == "1 Day View":
-                intraday_df = load_intraday_data(current_selected)
-                if intraday_df is not None and not intraday_df.empty:
-                    plot_df = intraday_df.tail(100).copy()
-                    is_intraday = True
-                else:
-                    plot_df = stock_df.tail(2).copy()
-                label_text = "last 24 hours"
-                bar_size = 4  
-            elif time_frame == "1 Week View":
-                plot_df = stock_df.tail(7).copy()
-                label_text = "last week"
-                bar_size = 25  
-            elif time_frame == "1 Month View":
-                plot_df = stock_df.tail(22).copy()
-                label_text = "last month"
-                bar_size = 12  
-            else:
-                plot_df = stock_df.tail(66).copy()
-                label_text = "last 3 months"
-                bar_size = 4   
-            
-            chart_style = st.radio("Chart Type:", ["Line View", "Candlestick View"], horizontal=True, label_visibility="collapsed")
-            
-            start_val = plot_df['c'].iloc[0]
-            end_val = plot_df['c'].iloc[-1]
-            nominal_change = end_val - start_val
-            pct_change = (nominal_change / start_val) * 100
-            
-            if nominal_change >= 0:
-                perf_html = f"<span class='price-up'>↗ ${round(nominal_change, 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#097969"  
-            else:
-                perf_html = f"<span class='price-down'>↘ -${round(abs(nominal_change), 2)} ({round(pct_change, 2)}%) {label_text}</span>"
-                theme_color = "#d2143a"  
-                
-            st.markdown(f"### {current_selected} Price Action: {perf_html}", unsafe_allow_html=True)
-            
-            min_price = float(plot_df['l'].min() if 'l' in plot_df else plot_df['c'].min())
-            max_price = float(plot_df['h'].max() if 'h' in plot_df else plot_df['c'].max())
-            padding = (max_price - min_price) * 0.1 if max_price != min_price else 5.0
-            y_scale = alt.Scale(domain=[min_price - padding, max_price + padding], zero=False)
-            
-            x_axis_format = '%H:%M' if is_intraday else '%b %d'
-            x_axis_title = 'Time (EST)' if is_intraday else 'Date'
-            
-            if chart_style == "Line View":
-                base_line = (
-                    alt.Chart(plot_df)
-                    .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
-                    .encode(
-                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                        y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
-                    )
+            points = (
+                alt.Chart(plot_df)
+                .mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True)
+                .encode(
+                    x=alt.X('date:T'),
+                    y=alt.Y('c:Q')
                 )
-                
-                points = (
-                    alt.Chart(plot_df)
-                    .mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True)
-                    .encode(
-                        x=alt.X('date:T'),
-                        y=alt.Y('c:Q')
-                    )
-                )
-                
-                final_chart = alt.layer(base_line, points)
-            else:
-                for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
-                    if col not in plot_df.columns:
-                        plot_df[col] = plot_df[fallback]
-                
-                plot_df['condition'] = plot_df['c'] >= plot_df['o']
-                
-                color_condition = alt.condition(
-                    predicate="datum.condition === true",
-                    if_true=alt.value('#097969'),  
-                    if_false=alt.value('#d2143a')  
-                )
-                
-                wicks = (
-                    alt.Chart(plot_df)
-                    .mark_rule(strokeWidth=1.5)
-                    .encode(
-                        x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                        y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
-                        y2=alt.Y2('h:Q'),
-                        color=color_condition
-                    )
-                )
-                
-                bodies = (
-                    alt.Chart(plot_df)
-                    .mark_bar(size=bar_size)
-                    .encode(
-                        x=alt.X('date:T'),
-                        y=alt.Y('o:Q'),
-                        y2=alt.Y2('c:Q'),
-                        color=color_condition
-                    )
-                )
-                
-                final_chart = alt.layer(wicks, bodies)
+            )
             
-            st.altair_chart(final_chart.properties(height=350), use_container_width=True)
+            final_chart = alt.layer(base_line, points)
+        else:
+            for col, fallback in [('o', 'c'), ('h', 'c'), ('l', 'c')]:
+                if col not in plot_df.columns:
+                    plot_df[col] = plot_df[fallback]
             
-        with details_col:
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            st.metric(label="Official Market Close Price", value=f"${round(end_val, 2)}")
-            st.metric(label="14-Day Vector Run-up Trend", value=runup_str)
-            st.metric(label="Calculated Expected Volatility Move", value=move_str)
+            plot_df['condition'] = plot_df['c'] >= plot_df['o']
+            
+            color_condition = alt.condition(
+                predicate="datum.condition === true",
+                if_true=alt.value('#097969'),  
+                if_false=alt.value('#d2143a')  
+            )
+            
+            wicks = (
+                alt.Chart(plot_df)
+                .mark_rule(strokeWidth=1.5)
+                .encode(
+                    x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
+                    y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
+                    y2=alt.Y2('h:Q'),
+                    color=color_condition
+                )
+            )
+            
+            bodies = (
+                alt.Chart(plot_df)
+                .mark_bar(size=bar_size)
+                .encode(
+                    x=alt.X('date:T'),
+                    y=alt.Y('o:Q'),
+                    y2=alt.Y2('c:Q'),
+                    color=color_condition
+                )
+            )
+            
+            final_chart = alt.layer(wicks, bodies)
+        
+        st.altair_chart(final_chart.properties(height=350), use_container_width=True)
+        
+    with details_col:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.metric(label="Official Market Close Price", value=f"${round(end_val, 2)}")
+        st.metric(label="14-Day Vector Run-up Trend", value=runup_str)
+        st.metric(label="Calculated Expected Volatility Move", value=move_str)
