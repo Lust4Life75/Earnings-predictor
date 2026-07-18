@@ -12,7 +12,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Consolidated high-contrast, premium dark fintech stylesheet
 st.markdown("""
     <style>
     /* BACKGROUND GLOW */
@@ -50,7 +49,6 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* RATIONALE PANEL TRANSLUCENT PREMIUM BOX */
     .rationale-box {
         background-color: rgba(255, 255, 255, 0.04) !important;
         padding: 24px;
@@ -76,7 +74,6 @@ st.markdown("""
         line-height: 1.6 !important;
     }
 
-    /* PRO LOCK BOX */
     .pro-lock-box {
         background-color: rgba(255, 87, 87, 0.05) !important;
         border: 1px dashed rgba(255, 87, 87, 0.3) !important;
@@ -102,30 +99,18 @@ st.markdown("""
         border-top: 1px solid rgba(255, 255, 255, 0.02);
     }
     
+    /* FIX 3: Increased padding to unblock the backtest cards from the footer */
     .main .block-container {
-        padding-bottom: 70px;
+        padding-bottom: 120px; 
     }
     
-    .price-up {
-        color: #097969;
-        font-weight: bold;
-        font-size: 18px;
-    }
-    
-    .price-down {
-        color: #d2143a;
-        font-weight: bold;
-        font-size: 18px;
-    }
+    .price-up { color: #097969; font-weight: bold; font-size: 18px; }
+    .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --------------------------------------------------------
-# DETECT PREMIUM MEMBER STATE
-# --------------------------------------------------------
 is_premium = st.query_params.get("premium", "false") == "true"
 
-# Initialize search ticker in session state so it persists across selections
 if "chosen_ticker" not in st.session_state:
     st.session_state.chosen_ticker = "GOOGL"
 
@@ -184,16 +169,7 @@ except Exception:
 @st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
     url = "https://api.polygon.io/v3/reference/tickers"
-    params = {
-        "exchange": "XNAS",
-        "market": "stocks",
-        "active": "true",
-        "type": "CS",
-        "sort": "ticker",
-        "order": "asc",
-        "limit": 1000,
-        "apiKey": api_key
-    }
+    params = {"exchange": "XNAS", "market": "stocks", "active": "true", "type": "CS", "sort": "ticker", "order": "asc", "limit": 1000, "apiKey": api_key}
     all_tickers = []
     try:
         response = requests.get(url, params=params, timeout=10)
@@ -218,16 +194,15 @@ def get_all_nasdaq_tickers(api_key):
         st.error(f"Error fetching NASDAQ directory: {e}")
     return pd.DataFrame()
 
+# FIX 1: The function now takes the exact horizon window to prevent API alphabetical truncation
 @st.cache_resource
-def load_live_market_calendar():
+def load_live_market_calendar(horizon_days):
     import os
     today = datetime.date.today()
     historical_data_frames = {}
     live_records = []
     
-    # 1. FETCH REAL CALENDAR DATA VIA FINNHUB
     try:
-        # Check both Streamlit Secrets and standard OS Environment Variables for Vercel compatibility
         FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
         FINNHUB_KEY = FINNHUB_KEY.strip()
         
@@ -236,11 +211,11 @@ def load_live_market_calendar():
             return pd.DataFrame(), {}
 
         start_date = today.strftime('%Y-%m-%d')
-        end_date = (today + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        # DYNAMIC HORIZON: Only fetch the exact days requested
+        end_date = (today + datetime.timedelta(days=horizon_days)).strftime('%Y-%m-%d')
         
         finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
-        
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(finnhub_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
@@ -249,14 +224,9 @@ def load_live_market_calendar():
             
             if earnings_data:
                 earnings_df = pd.DataFrame(earnings_data)
-                
                 if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
-                    
-                    # THE FIX: Filter out algorithmic placeholders by requiring an actual EPS consensus estimate
                     if 'epsEstimate' in earnings_df.columns:
                         earnings_df = earnings_df.dropna(subset=['epsEstimate'])
-                        
-                    # Sort the remaining legitimate, confirmed dates chronologically
                     earnings_df = earnings_df.sort_values(by='date', ascending=True)
                     
                     target_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
@@ -273,14 +243,13 @@ def load_live_market_calendar():
         st.error(f"🚨 Network/Data Error Detected: {type(e).__name__} - {str(e)}")
         target_tickers = []
 
-    # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
     if target_tickers:
-        hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+        # FIX 2: Increased historic fetch to 400 days to guarantee Q-4 data
+        hist_start = (today - datetime.timedelta(days=400)).strftime('%Y-%m-%d')
         hist_end = today.strftime('%Y-%m-%d')
         
         for ticker in target_tickers:
             try:
-                # Core Analytics fetched via your paid Polygon Starter plan
                 hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
                 h_res = requests.get(hist_url, timeout=5)
                 
@@ -290,12 +259,10 @@ def load_live_market_calendar():
                     hist_df.set_index('date', inplace=True)
                     historical_data_frames[ticker] = hist_df
                     
-                    # Extract confirmed date from Finnhub dataframe
                     report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
                     report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
                     days_left = (report_date_obj - today).days
                     
-                    # Ensure we only process future events
                     if days_left >= 0:
                         record = analyze_market_vector(ticker, f"{ticker} Inc.", report_date_str, days_left, hist_df)
                         live_records.append(record)
@@ -307,22 +274,11 @@ def load_live_market_calendar():
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
-    df = pd.DataFrame(live_records)
-    if not df.empty:
-        df = df.sort_values(by="Days Left")
-    return df, historical_data_frames
-
-    df = pd.DataFrame(live_records)
-    if not df.empty:
-        df = df.sort_values(by="Days Left")
-    return df, historical_data_frames
-
-df_live, raw_history = load_live_market_calendar()
-
 @st.cache_data(ttl=86400)
 def load_fallback_history(ticker):
     today = datetime.date.today()
-    hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+    # FIX 2: Increased fallback fetch to 400 days as well
+    hist_start = (today - datetime.timedelta(days=400)).strftime('%Y-%m-%d')
     hist_end = today.strftime('%Y-%m-%d')
     hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
     try:
@@ -372,13 +328,13 @@ if not nasdaq_df.empty:
         format_func=format_func,
         key="directory_search"
     )
-    
     if selected_search:
         st.session_state.chosen_ticker = selected_search
 
 st.write("---")
 st.write("### 🎛️ Select Analysis Scope Horizon")
 
+# HORIZON SELECTION HAPPENS HERE
 if is_premium:
     time_horizon = st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "30-Day Macro Outlook"], horizontal=True, label_visibility="collapsed")
     max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
@@ -393,6 +349,9 @@ if is_premium:
 else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
+
+# THE ENGINE NOW FEEDS OFF THE USER'S SELECTION
+df_live, raw_history = load_live_market_calendar(max_days_allowed)
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
@@ -418,7 +377,6 @@ st.write(f"### 📊 Live Earnings Calendar Matrix ({time_horizon})")
 if not filtered_df.empty:
     display_df = filtered_df.copy()
     
-    # New Free-Tier Feature Restriction: Blur Expected Move
     if not is_premium:
         display_df["Expected Move %"] = "🔒 Pro Only"
 
@@ -437,7 +395,6 @@ if not filtered_df.empty:
         }
     )
     
-    # New Pro Feature: CSV Export
     if is_premium:
         st.download_button(
             label="⬇️ Export Current Matrix to CSV",
@@ -534,18 +491,9 @@ if hist_data is not None and not hist_data.empty:
     
     with chart_col:
         if is_premium:
-            time_frame = st.radio(
-                "Select Trading Range Window:", 
-                ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], 
-                horizontal=True
-            )
+            time_frame = st.radio("Select Trading Range Window:", ["1 Day View", "1 Week View", "1 Month View", "3 Month View"], horizontal=True)
         else:
-            time_frame = st.radio(
-                "Select Trading Range Window:", 
-                ["🔒 1 Day View (Pro Only)", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], 
-                index=1,
-                horizontal=True
-            )
+            time_frame = st.radio("Select Trading Range Window:", ["🔒 1 Day View (Pro Only)", "1 Week View", "🔒 1 Month View (Pro Only)", "🔒 3 Month View (Pro Only)"], index=1, horizontal=True)
             if "Pro Only" in time_frame:
                 time_frame = "1 Week View"
         
@@ -597,22 +545,12 @@ if hist_data is not None and not hist_data.empty:
         x_axis_title = 'Time (EST)' if is_intraday else 'Date'
         
         if chart_style == "Line View":
-            base_line = (
-                alt.Chart(plot_df)
-                .mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone')
-                .encode(
-                    x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                    y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
-                )
+            base_line = alt.Chart(plot_df).mark_line(color=theme_color, strokeWidth=2.5, interpolate='monotone').encode(
+                x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
+                y=alt.Y('c:Q', title="Price ($)", scale=y_scale)
             )
-            
-            points = (
-                alt.Chart(plot_df)
-                .mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True)
-                .encode(
-                    x=alt.X('date:T'),
-                    y=alt.Y('c:Q')
-                )
+            points = alt.Chart(plot_df).mark_point(color=theme_color, size=15 if is_intraday else 40, filled=True).encode(
+                x=alt.X('date:T'), y=alt.Y('c:Q')
             )
             final_chart = alt.layer(base_line, points)
         else:
@@ -621,33 +559,15 @@ if hist_data is not None and not hist_data.empty:
                     plot_df[col] = plot_df[fallback]
             
             plot_df['condition'] = plot_df['c'] >= plot_df['o']
+            color_condition = alt.condition(predicate="datum.condition === true", if_true=alt.value('#097969'), if_false=alt.value('#d2143a'))
             
-            color_condition = alt.condition(
-                predicate="datum.condition === true",
-                if_true=alt.value('#097969'),  
-                if_false=alt.value('#d2143a')  
+            wicks = alt.Chart(plot_df).mark_rule(strokeWidth=1.5).encode(
+                x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
+                y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
+                y2=alt.Y2('h:Q'), color=color_condition
             )
-            
-            wicks = (
-                alt.Chart(plot_df)
-                .mark_rule(strokeWidth=1.5)
-                .encode(
-                    x=alt.X('date:T', title=x_axis_title, axis=alt.Axis(format=x_axis_format)),
-                    y=alt.Y('l:Q', scale=y_scale, title="Price ($)"),
-                    y2=alt.Y2('h:Q'),
-                    color=color_condition
-                )
-            )
-            
-            bodies = (
-                alt.Chart(plot_df)
-                .mark_bar(size=bar_size)
-                .encode(
-                    x=alt.X('date:T'),
-                    y=alt.Y('o:Q'),
-                    y2=alt.Y2('c:Q'),
-                    color=color_condition
-                )
+            bodies = alt.Chart(plot_df).mark_bar(size=bar_size).encode(
+                x=alt.X('date:T'), y=alt.Y('o:Q'), y2=alt.Y2('c:Q'), color=color_condition
             )
             final_chart = alt.layer(wicks, bodies)
         
@@ -702,6 +622,7 @@ else:
 # --------------------------------------------------------
 st.markdown("""
     <div class='footer'>
-        © 2026 JYZ LTD | Live Institutional Earnings Engine
+        <p style='margin-bottom: 2px;'>© 2026 JYZ LTD | Live Institutional Earnings Engine</p>
+        <span style='color: #d2143a;'>⚠️ Risk Disclosure: All quantitative outputs, trend summaries, and calculated expected moves are generated strictly for computational educational research and do not constitute formal investment advice.</span>
     </div>
 """, unsafe_allow_html=True)
