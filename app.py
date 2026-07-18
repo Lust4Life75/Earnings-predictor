@@ -68,6 +68,7 @@ st.markdown("""
         color: #e5e7eb;
         margin: 15px 0;
     }
+    
     .footer {
         width: 100%;
         background-color: #0b0f19;
@@ -78,6 +79,7 @@ st.markdown("""
         border-top: 1px solid rgba(255, 255, 255, 0.02);
         margin-top: 60px;
     }
+    
     .price-up { color: #097969; font-weight: bold; font-size: 18px; }
     .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
@@ -275,7 +277,6 @@ def load_live_market_calendar_v2(horizon_days):
         df = df.sort_values(by="_Market_Cap_Proxy", ascending=False)
     return df, historical_data_frames
 
-# THE FIX: Function v3 completely busts the bad cache and explicitly enforces the API_KEY injection
 @st.cache_data(ttl=86400)
 def load_fallback_history_v3(ticker, api_key):
     today = datetime.date.today()
@@ -425,6 +426,7 @@ if not full_meta_list.empty:
     rationale_str = full_meta['Model Rationale Summary']
     runup_str = full_meta["14-Day Price Run-up"]
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
+    date_str = full_meta["Report Date"]
 else:
     hist_data = load_fallback_history_v3(current_selected, API_KEY)
     if hist_data is not None and not hist_data.empty:
@@ -437,6 +439,21 @@ else:
         firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
         calculated_move = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
         move_str = calculated_move if is_premium else "🔒 Pro Only"
+        
+        # INTERCEPTOR: Single-ticker search bypasses bulk limits to find the real report date
+        import os
+        F_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
+        date_str = "N/A"
+        if F_KEY:
+            try:
+                t_start = datetime.date.today().strftime('%Y-%m-%d')
+                t_end = (datetime.date.today() + datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+                m_url = f"https://finnhub.io/api/v1/calendar/earnings?from={t_start}&to={t_end}&symbol={current_selected}&token={F_KEY.strip()}"
+                m_res = requests.get(m_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+                if m_res.status_code == 200 and m_res.json().get("earningsCalendar"):
+                    date_str = m_res.json().get("earningsCalendar")[0].get("date", "N/A")
+            except:
+                pass
         
         if actual_runup > 4.5:
             direction_str = "🔴 Bearish (Overbought Risk)"
@@ -456,12 +473,19 @@ else:
         rationale_str = f"The underlying market structure for {current_selected} has been updated dynamically from the live NASDAQ database."
         runup_str = "N/A"
         move_str = "± 4.5%" if is_premium else "🔒 Pro Only"
+        date_str = "N/A"
 
 if is_premium:
+    # UPDATED PANEL: Injected 'Next Report Date' and 'Expected Move' variables cleanly into the header layout
     st.markdown(f"""
         <div class='rationale-box'>
             <h4>🔍 Algorithmic Rationale Engine: {current_selected}</h4>
-            <p style='margin-bottom: 12px;'><strong>Signal Vector:</strong> {direction_str} &nbsp;|&nbsp; <strong>Model Confidence Level:</strong> {confidence_str}</p>
+            <p style='margin-bottom: 12px;'>
+                <strong>Signal Vector:</strong> {direction_str} &nbsp;|&nbsp; 
+                <strong>Model Confidence Level:</strong> {confidence_str} &nbsp;|&nbsp; 
+                <strong>Next Report Date:</strong> {date_str} &nbsp;|&nbsp; 
+                <strong>Expected Move:</strong> {move_str}
+            </p>
             <hr style='border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 12px 0;'>
             <p><strong>Analysis Summary:</strong> {rationale_str}</p>
         </div>
