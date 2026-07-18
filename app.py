@@ -450,8 +450,18 @@ else:
                 t_end = (datetime.date.today() + datetime.timedelta(days=90)).strftime('%Y-%m-%d')
                 m_url = f"https://finnhub.io/api/v1/calendar/earnings?from={t_start}&to={t_end}&symbol={current_selected}&token={F_KEY.strip()}"
                 m_res = requests.get(m_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-                if m_res.status_code == 200 and m_res.json().get("earningsCalendar"):
-                    date_str = m_res.json().get("earningsCalendar")[0].get("date", "N/A")
+                if m_res.status_code == 200:
+                    single_earnings_data = m_res.json().get("earningsCalendar", [])
+                    if single_earnings_data:
+                        # Convert to DataFrame to safely filter and sort chronologically
+                        temp_df = pd.DataFrame(single_earnings_data)
+                        if 'date' in temp_df.columns:
+                            temp_df = temp_df.sort_values(by='date', ascending=True)
+                            
+                            # Filter out past dates and grab the next immediate upcoming catalyst
+                            future_dates = temp_df[temp_df['date'] >= t_start]
+                            if not future_dates.empty:
+                                date_str = future_dates.iloc[0]['date']
             except:
                 pass
         
