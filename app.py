@@ -68,6 +68,12 @@ st.markdown("""
         color: #e5e7eb;
         margin: 15px 0;
     }
+    
+    /* VERCEL OVERLAP FIX: Force the main container to pad the bottom aggressively */
+    div[data-testid="stAppViewBlockContainer"] {
+        padding-bottom: 250px !important; 
+    }
+    
     .footer {
         position: fixed;
         left: 0;
@@ -76,12 +82,12 @@ st.markdown("""
         background-color: #0b0f19;
         color: #4b5563;
         text-align: center;
-        padding: 12px;
+        padding: 14px;
         font-size: 11px;
-        z-index: 100;
+        z-index: 9999;
         border-top: 1px solid rgba(255, 255, 255, 0.02);
+        max-height: 85px;
     }
-    .main .block-container { padding-bottom: 150px !important; }
     .price-up { color: #097969; font-weight: bold; font-size: 18px; }
     .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
@@ -103,6 +109,10 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
     pct_changes = hist_df['c'].pct_change().dropna()
     firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
     empirical_expected_move = (firm_volatility_metric * 0.65) + (5.0 * 0.35)
+    
+    # MARKET CAP PROXY: Average Daily Dollar Volume
+    avg_vol = hist_df['v'].tail(14).mean() if 'v' in hist_df.columns else 0
+    dollar_volume = avg_vol * price_today
     
     if actual_runup > 4.5:
         signal = "🔴 Bearish (Overbought Risk)"
@@ -132,7 +142,8 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
         "Confidence": confidence, 
         "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
         "Last Close Price": f"${round(price_today, 2)}",
-        "Model Rationale Summary": rationale
+        "Model Rationale Summary": rationale,
+        "_Market_Cap_Proxy": dollar_volume # Hidden column strictly for robust sorting
     }
 
 # --------------------------------------------------------
@@ -166,12 +177,12 @@ def get_all_nasdaq_tickers(api_key):
             df = pd.DataFrame(all_tickers)
             df = df[["ticker", "name"]].dropna().sort_values(by="ticker", ascending=True)
             return df
-    except Exception as e:
+    except Exception:
         pass
     return pd.DataFrame()
 
 @st.cache_resource
-def load_live_market_calendar_v2():
+def load_live_market_calendar_v2(horizon_days):
     import os
     today = datetime.date.today()
     historical_data_frames = {}
@@ -185,28 +196,36 @@ def load_live_market_calendar_v2():
             return pd.DataFrame(), {}
 
         start_date = today.strftime('%Y-%m-%d')
-        end_date = (today + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
-        finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
+        end_date = (today + datetime.timedelta(days=horizon_days)).strftime('%Y-%m-%d')
         
+        # Primary bulk fetch
+        finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
         response = requests.get(finnhub_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         
+        earnings_data = []
         if response.status_code == 200:
-            earnings_data = response.json().get("earningsCalendar", [])
-            if earnings_data:
-                earnings_df = pd.DataFrame(earnings_data)
-                if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
-                    
-                    # Sort ascending so placeholders sink to the bottom. EPS filter removed to fix the 7-day bug.
-                    earnings_df = earnings_df.sort_values(by='date', ascending=True)
-                    raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
-                    alpha_tickers = [t for t in raw_tickers if t.isalpha()]
-                    
-                    # Force Mega-Caps to the front of the line so they never get cut off by limits
-                    mega_caps = [t for t in ['GOOGL', 'MSFT', 'AAPL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX'] if t in alpha_tickers]
-                    others = [t for t in alpha_tickers if t not in mega_caps]
-                    target_tickers = (mega_caps + others)[:45]
-                else:
-                    target_tickers = []
+            earnings_data.extend(response.json().get("earningsCalendar", []))
+            
+        # TARGETED MEGA-CAP INJECTION: Bypass Finnhub's A-Z cutoff completely
+        mega_caps = ['GOOGL', 'MSFT', 'AAPL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX']
+        for mc in mega_caps:
+            mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={mc}&token={FINNHUB_KEY}"
+            try:
+                mc_res = requests.get(mc_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+                if mc_res.status_code == 200:
+                    mc_data = mc_res.json().get("earningsCalendar", [])
+                    if mc_data:
+                        earnings_data.extend(mc_data)
+            except:
+                pass
+            
+        if earnings_data:
+            earnings_df = pd.DataFrame(earnings_data)
+            if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
+                earnings_df = earnings_df.drop_duplicates(subset=['symbol'])
+                earnings_df = earnings_df.sort_values(by='date', ascending=True)
+                raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
+                target_tickers = [t for t in raw_tickers if t.isalpha()][:45]
             else:
                 target_tickers = []
         else:
@@ -216,7 +235,6 @@ def load_live_market_calendar_v2():
         target_tickers = []
 
     if target_tickers:
-        # Cache Busted: Pulling 450 days to perfectly clear the Quarter -4 math
         hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
         hist_end = today.strftime('%Y-%m-%d')
         
@@ -243,10 +261,10 @@ def load_live_market_calendar_v2():
 
     df = pd.DataFrame(live_records)
     if not df.empty:
-        df = df.sort_values(by="Days Left")
+        # THE SORT FIX: Forces largest Market Cap (via Dollar Volume proxy) to the absolute top of the matrix
+        df = df.sort_values(by="_Market_Cap_Proxy", ascending=False)
     return df, historical_data_frames
 
-# New Cache Key to permanently break Streamlit's memory hold
 @st.cache_data(ttl=86400)
 def load_fallback_history_v2(ticker):
     today = datetime.date.today()
@@ -321,7 +339,7 @@ else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
 
-df_live, raw_history = load_live_market_calendar_v2()
+df_live, raw_history = load_live_market_calendar_v2(max_days_allowed)
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
@@ -350,6 +368,7 @@ if not filtered_df.empty:
     if not is_premium:
         display_df["Expected Move %"] = "🔒 Pro Only"
 
+    # Notice the hidden sorting column (_Market_Cap_Proxy) is excluded here so the table remains clean
     columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
     if is_premium:
         columns_to_show += ["Predicted Direction", "Confidence", "14-Day Price Run-up"]
@@ -397,7 +416,6 @@ if not full_meta_list.empty:
     runup_str = full_meta["14-Day Price Run-up"]
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
 else:
-    # Using Cache-Busted Function
     hist_data = load_fallback_history_v2(current_selected)
     if hist_data is not None and not hist_data.empty:
         price_today = hist_data['c'].iloc[-1]
@@ -591,8 +609,8 @@ else:
 # --------------------------------------------------------
 # 7. FOOTER INTEGRATION
 # --------------------------------------------------------
-# Physical HTML breaks force the footer away from the content blocks safely
-st.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
+# THE OVERLAP FIX: A hardcoded invisible spacer that forces Vercel to respect bottom padding
+st.markdown("<div style='height: 200px; width: 100%; display: block;'></div>", unsafe_allow_html=True)
 
 st.markdown("""
     <div class='footer'>
