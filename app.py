@@ -227,7 +227,7 @@ def load_live_market_calendar():
     
     # 1. FETCH REAL CALENDAR DATA VIA FINNHUB
     try:
-        # Check both Streamlit Secrets and standard OS Environment Variables
+        # Check both Streamlit Secrets and standard OS Environment Variables for Vercel compatibility
         FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
         FINNHUB_KEY = FINNHUB_KEY.strip()
         
@@ -251,7 +251,12 @@ def load_live_market_calendar():
                 earnings_df = pd.DataFrame(earnings_data)
                 
                 if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
-                    # THE FIX: Sort by date ascending so we grab the soonest upcoming earnings first!
+                    
+                    # THE FIX: Filter out algorithmic placeholders by requiring an actual EPS consensus estimate
+                    if 'epsEstimate' in earnings_df.columns:
+                        earnings_df = earnings_df.dropna(subset=['epsEstimate'])
+                        
+                    # Sort the remaining legitimate, confirmed dates chronologically
                     earnings_df = earnings_df.sort_values(by='date', ascending=True)
                     
                     target_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
@@ -275,6 +280,7 @@ def load_live_market_calendar():
         
         for ticker in target_tickers:
             try:
+                # Core Analytics fetched via your paid Polygon Starter plan
                 hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
                 h_res = requests.get(hist_url, timeout=5)
                 
@@ -284,37 +290,7 @@ def load_live_market_calendar():
                     hist_df.set_index('date', inplace=True)
                     historical_data_frames[ticker] = hist_df
                     
-                    report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
-                    report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
-                    days_left = (report_date_obj - today).days
-                    
-                    if days_left >= 0:
-                        record = analyze_market_vector(ticker, f"{ticker} Inc.", report_date_str, days_left, hist_df)
-                        live_records.append(record)
-            except:
-                continue
-
-    df = pd.DataFrame(live_records)
-    if not df.empty:
-        df = df.sort_values(by="Days Left")
-    return df, historical_data_frames
-
-    # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
-    if target_tickers:
-        hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
-        hist_end = today.strftime('%Y-%m-%d')
-        
-        for ticker in target_tickers:
-            try:
-                hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
-                h_res = requests.get(hist_url, timeout=5)
-                
-                if h_res.status_code == 200 and 'results' in h_res.json():
-                    hist_df = pd.DataFrame(h_res.json()['results'])
-                    hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
-                    hist_df.set_index('date', inplace=True)
-                    historical_data_frames[ticker] = hist_df
-                    
+                    # Extract confirmed date from Finnhub dataframe
                     report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
                     report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
                     days_left = (report_date_obj - today).days
@@ -325,6 +301,11 @@ def load_live_market_calendar():
                         live_records.append(record)
             except:
                 continue
+
+    df = pd.DataFrame(live_records)
+    if not df.empty:
+        df = df.sort_values(by="Days Left")
+    return df, historical_data_frames
 
     df = pd.DataFrame(live_records)
     if not df.empty:
