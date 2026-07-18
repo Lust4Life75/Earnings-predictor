@@ -14,13 +14,10 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* BACKGROUND GLOW */
     .stApp {
         background: radial-gradient(circle at 85% 15%, #051923 0%, #0b0f19 60%) !important;
         background-attachment: fixed !important;
     }
-
-    /* DARK MODE CARD OVERHAUL */
     .metric-card {
         background-color: rgba(255, 255, 255, 0.04) !important;
         padding: 18px;
@@ -32,7 +29,6 @@ st.markdown("""
         border-right: 1px solid rgba(255, 255, 255, 0.03);
         border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     }
-    
     .metric-card h4 {
         color: #9ca3af !important;
         margin: 0 0 6px 0 !important;
@@ -41,14 +37,12 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 0.8px;
     }
-    
     .metric-card h2 {
         color: #ffffff !important;
         margin: 0 !important;
         font-size: 24px !important;
         font-weight: 700 !important;
     }
-
     .rationale-box {
         background-color: rgba(255, 255, 255, 0.04) !important;
         padding: 24px;
@@ -56,24 +50,15 @@ st.markdown("""
         border-left: 5px solid #26a69a;
         margin-top: 20px;
         box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-        border-top: 1px solid rgba(255, 255, 255, 0.03);
-        border-right: 1px solid rgba(255, 255, 255, 0.03);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.03);
     }
-    
     .rationale-box h4 {
         color: #ffffff !important;
         font-weight: 700 !important;
         margin-bottom: 10px !important;
         font-size: 18px !important;
     }
-    
-    .rationale-box p {
-        color: #e5e7eb !important;
-        font-size: 15px !important;
-        line-height: 1.6 !important;
-    }
-
+    .rationale-box p { color: #e5e7eb !important; font-size: 15px !important; line-height: 1.6 !important; }
     .pro-lock-box {
         background-color: rgba(255, 87, 87, 0.05) !important;
         border: 1px dashed rgba(255, 87, 87, 0.3) !important;
@@ -83,8 +68,6 @@ st.markdown("""
         color: #e5e7eb;
         margin: 15px 0;
     }
-
-    /* FOOTER INTEGRATION */
     .footer {
         position: fixed;
         left: 0;
@@ -93,17 +76,12 @@ st.markdown("""
         background-color: #0b0f19;
         color: #4b5563;
         text-align: center;
-        padding: 10px;
+        padding: 12px;
         font-size: 11px;
         z-index: 100;
         border-top: 1px solid rgba(255, 255, 255, 0.02);
     }
-    
-    /* FIX 3: Increased padding to unblock the backtest cards from the footer */
-    .main .block-container {
-        padding-bottom: 120px; 
-    }
-    
+    .main .block-container { padding-bottom: 150px !important; }
     .price-up { color: #097969; font-weight: bold; font-size: 18px; }
     .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
@@ -158,7 +136,7 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
     }
 
 # --------------------------------------------------------
-# 3. LIVE HYBRID DATA INTEGRATION PIPELINE
+# 3. HYBRID DATA PIPELINE & CACHE BUSTING
 # --------------------------------------------------------
 try:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -175,8 +153,7 @@ def get_all_nasdaq_tickers(api_key):
         response = requests.get(url, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            results = data.get("results", [])
-            all_tickers.extend(results)
+            all_tickers.extend(data.get("results", []))
             while "next_url" in data and len(all_tickers) < 3500:
                 next_url = data["next_url"] + f"&apiKey={api_key}"
                 next_res = requests.get(next_url, timeout=10)
@@ -187,16 +164,14 @@ def get_all_nasdaq_tickers(api_key):
                     break
         if all_tickers:
             df = pd.DataFrame(all_tickers)
-            df = df[["ticker", "name"]].dropna()
-            df = df.sort_values(by="ticker", ascending=True)
+            df = df[["ticker", "name"]].dropna().sort_values(by="ticker", ascending=True)
             return df
     except Exception as e:
-        st.error(f"Error fetching NASDAQ directory: {e}")
+        pass
     return pd.DataFrame()
 
-# FIX 1: The function now takes the exact horizon window to prevent API alphabetical truncation
 @st.cache_resource
-def load_live_market_calendar(horizon_days):
+def load_live_market_calendar_v2():
     import os
     today = datetime.date.today()
     historical_data_frames = {}
@@ -207,45 +182,42 @@ def load_live_market_calendar(horizon_days):
         FINNHUB_KEY = FINNHUB_KEY.strip()
         
         if not FINNHUB_KEY:
-            st.error("🔒 Vault Configuration Error: FINNHUB_API_KEY missing from Environment Settings.")
             return pd.DataFrame(), {}
 
         start_date = today.strftime('%Y-%m-%d')
-        # DYNAMIC HORIZON: Only fetch the exact days requested
-        end_date = (today + datetime.timedelta(days=horizon_days)).strftime('%Y-%m-%d')
-        
+        end_date = (today + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(finnhub_url, headers=headers, timeout=10)
+        
+        response = requests.get(finnhub_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         
         if response.status_code == 200:
-            data = response.json()
-            earnings_data = data.get("earningsCalendar", [])
-            
+            earnings_data = response.json().get("earningsCalendar", [])
             if earnings_data:
                 earnings_df = pd.DataFrame(earnings_data)
                 if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
-                    if 'epsEstimate' in earnings_df.columns:
-                        earnings_df = earnings_df.dropna(subset=['epsEstimate'])
-                    earnings_df = earnings_df.sort_values(by='date', ascending=True)
                     
-                    target_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
-                    target_tickers = [t for t in target_tickers if t.isalpha()][:45]
+                    # Sort ascending so placeholders sink to the bottom. EPS filter removed to fix the 7-day bug.
+                    earnings_df = earnings_df.sort_values(by='date', ascending=True)
+                    raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
+                    alpha_tickers = [t for t in raw_tickers if t.isalpha()]
+                    
+                    # Force Mega-Caps to the front of the line so they never get cut off by limits
+                    mega_caps = [t for t in ['GOOGL', 'MSFT', 'AAPL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX'] if t in alpha_tickers]
+                    others = [t for t in alpha_tickers if t not in mega_caps]
+                    target_tickers = (mega_caps + others)[:45]
                 else:
                     target_tickers = []
             else:
                 target_tickers = []
         else:
-            st.warning(f"Earnings API limit reached or blocked (Status Code: {response.status_code})")
             target_tickers = []
             
-    except Exception as e:
-        st.error(f"🚨 Network/Data Error Detected: {type(e).__name__} - {str(e)}")
+    except Exception:
         target_tickers = []
 
     if target_tickers:
-        # FIX 2: Increased historic fetch to 400 days to guarantee Q-4 data
-        hist_start = (today - datetime.timedelta(days=400)).strftime('%Y-%m-%d')
+        # Cache Busted: Pulling 450 days to perfectly clear the Quarter -4 math
+        hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
         hist_end = today.strftime('%Y-%m-%d')
         
         for ticker in target_tickers:
@@ -274,11 +246,11 @@ def load_live_market_calendar(horizon_days):
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
+# New Cache Key to permanently break Streamlit's memory hold
 @st.cache_data(ttl=86400)
-def load_fallback_history(ticker):
+def load_fallback_history_v2(ticker):
     today = datetime.date.today()
-    # FIX 2: Increased fallback fetch to 400 days as well
-    hist_start = (today - datetime.timedelta(days=400)).strftime('%Y-%m-%d')
+    hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
     hist_end = today.strftime('%Y-%m-%d')
     hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
     try:
@@ -334,7 +306,6 @@ if not nasdaq_df.empty:
 st.write("---")
 st.write("### 🎛️ Select Analysis Scope Horizon")
 
-# HORIZON SELECTION HAPPENS HERE
 if is_premium:
     time_horizon = st.radio("Choose rolling forecast window:", options=["7-Day Catalyst Window", "30-Day Macro Outlook"], horizontal=True, label_visibility="collapsed")
     max_days_allowed = 7 if time_horizon == "7-Day Catalyst Window" else 30
@@ -350,8 +321,7 @@ else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
 
-# THE ENGINE NOW FEEDS OFF THE USER'S SELECTION
-df_live, raw_history = load_live_market_calendar(max_days_allowed)
+df_live, raw_history = load_live_market_calendar_v2()
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
@@ -390,7 +360,7 @@ if not filtered_df.empty:
         hide_index=True,
         disabled=columns_to_show[1:],
         column_config={
-            "Confidence": st.column_config.ProgressColumn("Model Confidence", help="The algorithmic calculation certainty index", format="%d%%", min_value=0, max_value=100),
+            "Confidence": st.column_config.ProgressColumn("Model Confidence", format="%d%%", min_value=0, max_value=100),
             "Days Left": st.column_config.NumberColumn("Days Left", format="%d days")
         }
     )
@@ -427,7 +397,8 @@ if not full_meta_list.empty:
     runup_str = full_meta["14-Day Price Run-up"]
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
 else:
-    hist_data = load_fallback_history(current_selected)
+    # Using Cache-Busted Function
+    hist_data = load_fallback_history_v2(current_selected)
     if hist_data is not None and not hist_data.empty:
         price_today = hist_data['c'].iloc[-1]
         price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
@@ -481,7 +452,7 @@ else:
 st.write("---")
 st.write("### 🔍 Live Charting & Horizon Performance Tracker")
 
-hist_data = raw_history.get(current_selected, load_fallback_history(current_selected))
+hist_data = raw_history.get(current_selected, load_fallback_history_v2(current_selected))
 
 if hist_data is not None and not hist_data.empty:
     import altair as alt
@@ -620,6 +591,9 @@ else:
 # --------------------------------------------------------
 # 7. FOOTER INTEGRATION
 # --------------------------------------------------------
+# Physical HTML breaks force the footer away from the content blocks safely
+st.markdown("<br><br><br><br><br>", unsafe_allow_html=True)
+
 st.markdown("""
     <div class='footer'>
         <p style='margin-bottom: 2px;'>© 2026 JYZ LTD | Live Institutional Earnings Engine</p>
