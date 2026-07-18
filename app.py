@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import datetime
 import requests
-import yfinance as yf
 
 # --------------------------------------------------------
 # 1. PAGE CONFIGURATION & HIGH-CONTRAST STYLING
@@ -225,28 +224,46 @@ def load_live_market_calendar():
     historical_data_frames = {}
     live_records = []
     
-    # 1. FETCH REAL CALENDAR DATA VIA YFINANCE
+    # 1. FETCH REAL CALENDAR DATA VIA FINNHUB (Official Free API)
     try:
-        cal = yf.Calendars()
-        # Fetch upcoming earnings for the next 30 days to support the Macro Outlook
-        earnings_df = cal.get_earnings_calendar(start=today, end=today + datetime.timedelta(days=30))
+        # Retrieve Finnhub API Key from Vault
+        FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY", "")
+        if not FINNHUB_KEY:
+            st.error("🔒 Vault Configuration Error: FINNHUB_API_KEY missing from Streamlit Secret Settings.")
+            return pd.DataFrame(), {}
+
+        start_date = today.strftime('%Y-%m-%d')
+        end_date = (today + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         
-        if not earnings_df.empty:
-            target_tickers = earnings_df['Symbol'].dropna().unique().tolist()
-            target_tickers = [t for t in target_tickers if t.isalpha()][:45] # Fetch top 45
+        finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
+        response = requests.get(finnhub_url, timeout=10)
+        
+        if response.status_code == 200:
+            earnings_data = response.json().get("earningsCalendar", [])
+            earnings_df = pd.DataFrame(earnings_data)
+            
+            if not earnings_df.empty:
+                # Filter for valid, alpha-only NASDAQ tickers to align with Polygon limits
+                target_tickers = earnings_df['symbol'].dropna().unique().tolist()
+                target_tickers = [t for t in target_tickers if t.isalpha()][:45]
+            else:
+                target_tickers = []
         else:
+            st.warning("Earnings calendar API limit reached or unavailable.")
             target_tickers = []
+            
     except Exception as e:
         st.warning(f"Calendar source temporarily unavailable. Please refresh.")
         target_tickers = []
 
-    # 2. HYBRID DATA AGGREGATION (Polygon for Analytics)
+    # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
     if target_tickers:
         hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
         hist_end = today.strftime('%Y-%m-%d')
         
         for ticker in target_tickers:
             try:
+                # Core Analytics fetched via your paid Polygon plan
                 hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
                 h_res = requests.get(hist_url, timeout=5)
                 
@@ -256,18 +273,15 @@ def load_live_market_calendar():
                     hist_df.set_index('date', inplace=True)
                     historical_data_frames[ticker] = hist_df
                     
-                    report_date = earnings_df[earnings_df['Symbol'] == ticker]['Earnings Date'].iloc[0]
-                    if hasattr(report_date, 'date'):
-                        report_date_obj = report_date.date()
-                    else:
-                        report_date_obj = pd.to_datetime(report_date).date()
-                        
+                    # Extract date from Finnhub dataframe
+                    report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
+                    report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
                     days_left = (report_date_obj - today).days
                     
-                    company_name = earnings_df[earnings_df['Symbol'] == ticker]['Company'].iloc[0] if 'Company' in earnings_df.columns else f"{ticker} Inc."
-                    
-                    record = analyze_market_vector(ticker, company_name, report_date_obj.strftime('%Y-%m-%d'), days_left, hist_df)
-                    live_records.append(record)
+                    # Ensure we only show future/upcoming events in the pipeline
+                    if days_left >= 0:
+                        record = analyze_market_vector(ticker, f"{ticker} Inc.", report_date_str, days_left, hist_df)
+                        live_records.append(record)
             except:
                 continue
 
