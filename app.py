@@ -312,35 +312,6 @@ def load_live_market_calendar():
         df = df.sort_values(by="Days Left")
     return df, historical_data_frames
 
-    # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
-    if target_tickers:
-        hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
-        hist_end = today.strftime('%Y-%m-%d')
-        
-        for ticker in target_tickers:
-            try:
-                # Core Analytics fetched via your paid Polygon plan
-                hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
-                h_res = requests.get(hist_url, timeout=5)
-                
-                if h_res.status_code == 200 and 'results' in h_res.json():
-                    hist_df = pd.DataFrame(h_res.json()['results'])
-                    hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
-                    hist_df.set_index('date', inplace=True)
-                    historical_data_frames[ticker] = hist_df
-                    
-                    # Extract date from Finnhub dataframe
-                    report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
-                    report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
-                    days_left = (report_date_obj - today).days
-                    
-                    # Ensure we only show future/upcoming events in the pipeline
-                    if days_left >= 0:
-                        record = analyze_market_vector(ticker, f"{ticker} Inc.", report_date_str, days_left, hist_df)
-                        live_records.append(record)
-            except:
-                continue
-
     df = pd.DataFrame(live_records)
     if not df.empty:
         df = df.sort_values(by="Days Left")
