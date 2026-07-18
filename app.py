@@ -69,25 +69,18 @@ st.markdown("""
         margin: 15px 0;
     }
     
-    /* VERCEL OVERLAP FIX: Force the main container to pad the bottom aggressively */
-    div[data-testid="stAppViewBlockContainer"] {
-        padding-bottom: 250px !important; 
-    }
-    
+    /* OVERLAP FIX: A standard relative footer that flows cleanly below the content */
     .footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
         width: 100%;
         background-color: #0b0f19;
         color: #4b5563;
         text-align: center;
-        padding: 14px;
+        padding: 20px;
         font-size: 11px;
-        z-index: 9999;
         border-top: 1px solid rgba(255, 255, 255, 0.02);
-        max-height: 85px;
+        margin-top: 60px;
     }
+    
     .price-up { color: #097969; font-weight: bold; font-size: 18px; }
     .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
@@ -110,7 +103,7 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
     firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
     empirical_expected_move = (firm_volatility_metric * 0.65) + (5.0 * 0.35)
     
-    # MARKET CAP PROXY: Average Daily Dollar Volume
+    # NEW: Market Cap Proxy (Dollar Volume) for robust institutional sorting
     avg_vol = hist_df['v'].tail(14).mean() if 'v' in hist_df.columns else 0
     dollar_volume = avg_vol * price_today
     
@@ -143,7 +136,7 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
         "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
         "Last Close Price": f"${round(price_today, 2)}",
         "Model Rationale Summary": rationale,
-        "_Market_Cap_Proxy": dollar_volume # Hidden column strictly for robust sorting
+        "_Market_Cap_Proxy": dollar_volume # Hidden column strictly for sorting
     }
 
 # --------------------------------------------------------
@@ -154,6 +147,27 @@ try:
 except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
+
+# NEW: Active S&P 500 Index Fetcher
+@st.cache_data(ttl=86400*7)
+def get_sp500_tickers():
+    try:
+        # Attempts to pull the live index directly from Wikipedia
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        tables = pd.read_html(url)
+        df = tables[0]
+        tickers = df['Symbol'].tolist()
+        return [str(t) for t in tickers if str(t).isalpha()]
+    except Exception:
+        # Bulletproof fallback to the top 60 Mega-Caps if web-scrape is blocked by Vercel
+        return [
+            'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 
+            'JPM', 'WMT', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD', 'COST', 
+            'ORCL', 'MRK', 'ABBV', 'CVX', 'CRM', 'BAC', 'KO', 'NFLX', 'AMD', 'PEP', 
+            'LIN', 'TMO', 'MCD', 'ADBE', 'WFC', 'CSCO', 'DIS', 'INTC', 'TXN', 'QCOM', 
+            'VZ', 'IBM', 'GE', 'PFE', 'NOW', 'UBER', 'CAT', 'AMGN', 'AXP', 'ISRG', 
+            'GS', 'SYK', 'RTX', 'MS', 'HON', 'BKNG', 'LMT', 'BLK', 'MDT', 'TJX'
+        ]
 
 @st.cache_data(ttl=86400)
 def get_all_nasdaq_tickers(api_key):
@@ -198,7 +212,6 @@ def load_live_market_calendar_v2(horizon_days):
         start_date = today.strftime('%Y-%m-%d')
         end_date = (today + datetime.timedelta(days=horizon_days)).strftime('%Y-%m-%d')
         
-        # Primary bulk fetch
         finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
         response = requests.get(finnhub_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         
@@ -206,8 +219,8 @@ def load_live_market_calendar_v2(horizon_days):
         if response.status_code == 200:
             earnings_data.extend(response.json().get("earningsCalendar", []))
             
-        # TARGETED MEGA-CAP INJECTION: Bypass Finnhub's A-Z cutoff completely
-        mega_caps = ['GOOGL', 'MSFT', 'AAPL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX']
+        # TARGETED MEGA-CAP INJECTION: Manual pull for biggest tech to bypass API cutoffs
+        mega_caps = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 'JPM']
         for mc in mega_caps:
             mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={mc}&token={FINNHUB_KEY}"
             try:
@@ -225,7 +238,15 @@ def load_live_market_calendar_v2(horizon_days):
                 earnings_df = earnings_df.drop_duplicates(subset=['symbol'])
                 earnings_df = earnings_df.sort_values(by='date', ascending=True)
                 raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
-                target_tickers = [t for t in raw_tickers if t.isalpha()][:45]
+                alpha_tickers = [t for t in raw_tickers if t.isalpha()]
+                
+                # THE SPLIT: Group into SP500 and Others
+                sp500_list = get_sp500_tickers()
+                reporting_sp500 = [t for t in alpha_tickers if t in sp500_list]
+                reporting_others = [t for t in alpha_tickers if t not in sp500_list]
+                
+                # THE OVERRIDE: S&P 500 takes absolute priority, SMEs fill the remaining slots
+                target_tickers = (reporting_sp500 + reporting_others)[:45]
             else:
                 target_tickers = []
         else:
@@ -368,7 +389,6 @@ if not filtered_df.empty:
     if not is_premium:
         display_df["Expected Move %"] = "🔒 Pro Only"
 
-    # Notice the hidden sorting column (_Market_Cap_Proxy) is excluded here so the table remains clean
     columns_to_show = ["Select", "Ticker", "Company", "Report Date", "Days Left", "Last Close Price", "Expected Move %"]
     if is_premium:
         columns_to_show += ["Predicted Direction", "Confidence", "14-Day Price Run-up"]
@@ -609,9 +629,6 @@ else:
 # --------------------------------------------------------
 # 7. FOOTER INTEGRATION
 # --------------------------------------------------------
-# THE OVERLAP FIX: A hardcoded invisible spacer that forces Vercel to respect bottom padding
-st.markdown("<div style='height: 200px; width: 100%; display: block;'></div>", unsafe_allow_html=True)
-
 st.markdown("""
     <div class='footer'>
         <p style='margin-bottom: 2px;'>© 2026 JYZ LTD | Live Institutional Earnings Engine</p>
