@@ -68,8 +68,6 @@ st.markdown("""
         color: #e5e7eb;
         margin: 15px 0;
     }
-    
-    /* OVERLAP FIX: A standard relative footer that flows cleanly below the content */
     .footer {
         width: 100%;
         background-color: #0b0f19;
@@ -80,7 +78,6 @@ st.markdown("""
         border-top: 1px solid rgba(255, 255, 255, 0.02);
         margin-top: 60px;
     }
-    
     .price-up { color: #097969; font-weight: bold; font-size: 18px; }
     .price-down { color: #d2143a; font-weight: bold; font-size: 18px; }
     </style>
@@ -103,7 +100,6 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
     firm_volatility_metric = pct_changes.std() * 100 * 2.2 if not pct_changes.empty else 2.0
     empirical_expected_move = (firm_volatility_metric * 0.65) + (5.0 * 0.35)
     
-    # NEW: Market Cap Proxy (Dollar Volume) for robust institutional sorting
     avg_vol = hist_df['v'].tail(14).mean() if 'v' in hist_df.columns else 0
     dollar_volume = avg_vol * price_today
     
@@ -136,7 +132,7 @@ def analyze_market_vector(ticker, company_name, report_date_str, days_left, hist
         "14-Day Price Run-up": f"{round(actual_runup, 2)}%",
         "Last Close Price": f"${round(price_today, 2)}",
         "Model Rationale Summary": rationale,
-        "_Market_Cap_Proxy": dollar_volume # Hidden column strictly for sorting
+        "_Market_Cap_Proxy": dollar_volume 
     }
 
 # --------------------------------------------------------
@@ -148,18 +144,15 @@ except Exception:
     st.error("🔒 Vault Configuration Error: POLYGON_API_KEY missing from Streamlit Secret Settings.")
     st.stop()
 
-# NEW: Active S&P 500 Index Fetcher
 @st.cache_data(ttl=86400*7)
 def get_sp500_tickers():
     try:
-        # Attempts to pull the live index directly from Wikipedia
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
         tables = pd.read_html(url)
         df = tables[0]
         tickers = df['Symbol'].tolist()
         return [str(t) for t in tickers if str(t).isalpha()]
     except Exception:
-        # Bulletproof fallback to the top 60 Mega-Caps if web-scrape is blocked by Vercel
         return [
             'AAPL', 'MSFT', 'NVDA', 'GOOGL', 'GOOG', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 
             'JPM', 'WMT', 'UNH', 'V', 'XOM', 'MA', 'JNJ', 'PG', 'HD', 'COST', 
@@ -219,7 +212,6 @@ def load_live_market_calendar_v2(horizon_days):
         if response.status_code == 200:
             earnings_data.extend(response.json().get("earningsCalendar", []))
             
-        # TARGETED MEGA-CAP INJECTION: Manual pull for biggest tech to bypass API cutoffs
         mega_caps = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 'JPM']
         for mc in mega_caps:
             mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={mc}&token={FINNHUB_KEY}"
@@ -240,12 +232,10 @@ def load_live_market_calendar_v2(horizon_days):
                 raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
                 alpha_tickers = [t for t in raw_tickers if t.isalpha()]
                 
-                # THE SPLIT: Group into SP500 and Others
                 sp500_list = get_sp500_tickers()
                 reporting_sp500 = [t for t in alpha_tickers if t in sp500_list]
                 reporting_others = [t for t in alpha_tickers if t not in sp500_list]
                 
-                # THE OVERRIDE: S&P 500 takes absolute priority, SMEs fill the remaining slots
                 target_tickers = (reporting_sp500 + reporting_others)[:45]
             else:
                 target_tickers = []
@@ -282,16 +272,16 @@ def load_live_market_calendar_v2(horizon_days):
 
     df = pd.DataFrame(live_records)
     if not df.empty:
-        # THE SORT FIX: Forces largest Market Cap (via Dollar Volume proxy) to the absolute top of the matrix
         df = df.sort_values(by="_Market_Cap_Proxy", ascending=False)
     return df, historical_data_frames
 
+# THE FIX: Function v3 completely busts the bad cache and explicitly enforces the API_KEY injection
 @st.cache_data(ttl=86400)
-def load_fallback_history_v2(ticker):
+def load_fallback_history_v3(ticker, api_key):
     today = datetime.date.today()
     hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
     hist_end = today.strftime('%Y-%m-%d')
-    hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
+    hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={api_key}"
     try:
         h_res = requests.get(hist_url, timeout=5)
         if h_res.status_code == 200 and 'results' in h_res.json():
@@ -304,11 +294,11 @@ def load_fallback_history_v2(ticker):
     return None
 
 @st.cache_data(ttl=300)
-def load_intraday_data(ticker):
+def load_intraday_data_v2(ticker, api_key):
     today = datetime.date.today()
     start_date = (today - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={API_KEY}"
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/5/minute/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={api_key}"
     try:
         res = requests.get(url, timeout=5)
         if res.status_code == 200 and 'results' in res.json():
@@ -436,7 +426,7 @@ if not full_meta_list.empty:
     runup_str = full_meta["14-Day Price Run-up"]
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
 else:
-    hist_data = load_fallback_history_v2(current_selected)
+    hist_data = load_fallback_history_v3(current_selected, API_KEY)
     if hist_data is not None and not hist_data.empty:
         price_today = hist_data['c'].iloc[-1]
         price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
@@ -490,7 +480,7 @@ else:
 st.write("---")
 st.write("### 🔍 Live Charting & Horizon Performance Tracker")
 
-hist_data = raw_history.get(current_selected, load_fallback_history_v2(current_selected))
+hist_data = raw_history.get(current_selected, load_fallback_history_v3(current_selected, API_KEY))
 
 if hist_data is not None and not hist_data.empty:
     import altair as alt
@@ -508,7 +498,7 @@ if hist_data is not None and not hist_data.empty:
         
         is_intraday = False
         if time_frame == "1 Day View" or time_frame == "🔒 1 Day View (Pro Only)":
-            intraday_df = load_intraday_data(current_selected)
+            intraday_df = load_intraday_data_v2(current_selected, API_KEY)
             if intraday_df is not None and not intraday_df.empty:
                 plot_df = intraday_df.tail(100).copy()
                 is_intraday = True
