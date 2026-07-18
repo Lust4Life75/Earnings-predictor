@@ -161,7 +161,7 @@ def get_sp500_tickers():
             'ORCL', 'MRK', 'ABBV', 'CVX', 'CRM', 'BAC', 'KO', 'NFLX', 'AMD', 'PEP', 
             'LIN', 'TMO', 'MCD', 'ADBE', 'WFC', 'CSCO', 'DIS', 'INTC', 'TXN', 'QCOM', 
             'VZ', 'IBM', 'GE', 'PFE', 'NOW', 'UBER', 'CAT', 'AMGN', 'AXP', 'ISRG', 
-            'GS', 'SYK', 'RTX', 'MS', 'HON', 'BKNG', 'LMT', 'BLK', 'MDT', 'TJX'
+            'GS', 'SYK', 'RTX', 'MS', 'HON', 'BKNG', 'LMT', 'BLK', 'MDT', 'TJX', 'SBUX'
         ]
 
 @st.cache_data(ttl=86400)
@@ -214,7 +214,7 @@ def load_live_market_calendar_v2(horizon_days):
         if response.status_code == 200:
             earnings_data.extend(response.json().get("earningsCalendar", []))
             
-        mega_caps = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 'JPM']
+        mega_caps = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 'JPM', 'SBUX']
         for mc in mega_caps:
             mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={mc}&token={FINNHUB_KEY}"
             try:
@@ -229,12 +229,28 @@ def load_live_market_calendar_v2(horizon_days):
         if earnings_data:
             earnings_df = pd.DataFrame(earnings_data)
             if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
-                earnings_df = earnings_df.drop_duplicates(subset=['symbol'])
+                
+                # Sort chronologically BEFORE doing any filtering to respect the timeline
                 earnings_df = earnings_df.sort_values(by='date', ascending=True)
-                raw_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
-                alpha_tickers = [t for t in raw_tickers if t.isalpha()]
                 
                 sp500_list = get_sp500_tickers()
+                is_sp500 = earnings_df['symbol'].isin(sp500_list)
+                
+                sp500_df = earnings_df[is_sp500].copy()
+                others_df = earnings_df[~is_sp500].copy()
+                
+                # 🛡️ THE GHOST ASSASSIN: Destroy placeholders missing an EPS estimate (S&P 500 only)
+                if 'epsEstimate' in sp500_df.columns:
+                    sp500_df = sp500_df.dropna(subset=['epsEstimate'])
+                
+                sp500_df = sp500_df.drop_duplicates(subset=['symbol'], keep='first')
+                others_df = others_df.drop_duplicates(subset=['symbol'], keep='first')
+                
+                clean_df = pd.concat([sp500_df, others_df]).sort_values(by='date', ascending=True)
+                
+                raw_tickers = clean_df['symbol'].dropna().astype(str).unique().tolist()
+                alpha_tickers = [t for t in raw_tickers if t.isalpha()]
+                
                 reporting_sp500 = [t for t in alpha_tickers if t in sp500_list]
                 reporting_others = [t for t in alpha_tickers if t not in sp500_list]
                 
@@ -262,7 +278,7 @@ def load_live_market_calendar_v2(horizon_days):
                     hist_df.set_index('date', inplace=True)
                     historical_data_frames[ticker] = hist_df
                     
-                    report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
+                    report_date_str = clean_df[clean_df['symbol'] == ticker]['date'].iloc[0]
                     report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
                     days_left = (report_date_obj - today).days
                     
@@ -440,7 +456,7 @@ else:
         calculated_move = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
         move_str = calculated_move if is_premium else "🔒 Pro Only"
         
-        # INTERCEPTOR: Single-ticker search bypasses bulk limits to find the real report date
+        # 🛡️ THE GHOST ASSASSIN INTERCEPTOR
         import os
         F_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
         date_str = "N/A"
@@ -453,12 +469,15 @@ else:
                 if m_res.status_code == 200:
                     single_earnings_data = m_res.json().get("earningsCalendar", [])
                     if single_earnings_data:
-                        # Convert to DataFrame to safely filter and sort chronologically
                         temp_df = pd.DataFrame(single_earnings_data)
                         if 'date' in temp_df.columns:
+                            # Kill ghost placeholders by requiring an EPS estimate if multiple exist
+                            if 'epsEstimate' in temp_df.columns:
+                                valid_df = temp_df.dropna(subset=['epsEstimate'])
+                                if not valid_df.empty:
+                                    temp_df = valid_df
+                                    
                             temp_df = temp_df.sort_values(by='date', ascending=True)
-                            
-                            # Filter out past dates and grab the next immediate upcoming catalyst
                             future_dates = temp_df[temp_df['date'] >= t_start]
                             if not future_dates.empty:
                                 date_str = future_dates.iloc[0]['date']
@@ -486,7 +505,6 @@ else:
         date_str = "N/A"
 
 if is_premium:
-    # UPDATED PANEL: Injected 'Next Report Date' and 'Expected Move' variables cleanly into the header layout
     st.markdown(f"""
         <div class='rationale-box'>
             <h4>🔍 Algorithmic Rationale Engine: {current_selected}</h4>
