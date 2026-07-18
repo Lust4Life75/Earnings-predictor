@@ -220,41 +220,85 @@ def get_all_nasdaq_tickers(api_key):
 
 @st.cache_resource
 def load_live_market_calendar():
+    import os
     today = datetime.date.today()
     historical_data_frames = {}
     live_records = []
     
-    # 1. FETCH REAL CALENDAR DATA VIA FINNHUB (Official Free API)
+    # 1. FETCH REAL CALENDAR DATA VIA FINNHUB
     try:
-        # Retrieve Finnhub API Key from Vault
-        FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY", "")
+        # Check both Streamlit Secrets and standard OS Environment Variables
+        FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
+        FINNHUB_KEY = FINNHUB_KEY.strip()
+        
         if not FINNHUB_KEY:
-            st.error("🔒 Vault Configuration Error: FINNHUB_API_KEY missing from Streamlit Secret Settings.")
+            st.error("🔒 Vault Configuration Error: FINNHUB_API_KEY missing from Environment Settings.")
             return pd.DataFrame(), {}
 
         start_date = today.strftime('%Y-%m-%d')
         end_date = (today + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         
         finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
-        response = requests.get(finnhub_url, timeout=10)
+        
+        # Crucial: Spoofing a browser header prevents APIs from blocking standard Python requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        response = requests.get(finnhub_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
-            earnings_data = response.json().get("earningsCalendar", [])
-            earnings_df = pd.DataFrame(earnings_data)
+            data = response.json()
+            earnings_data = data.get("earningsCalendar", [])
             
-            if not earnings_df.empty:
-                # Filter for valid, alpha-only NASDAQ tickers to align with Polygon limits
-                target_tickers = earnings_df['symbol'].dropna().unique().tolist()
-                target_tickers = [t for t in target_tickers if t.isalpha()][:45]
+            if earnings_data:
+                earnings_df = pd.DataFrame(earnings_data)
+                
+                # Safely verify the 'symbol' column exists to prevent fatal KeyErrors
+                if 'symbol' in earnings_df.columns:
+                    target_tickers = earnings_df['symbol'].dropna().astype(str).unique().tolist()
+                    target_tickers = [t for t in target_tickers if t.isalpha()][:45]
+                else:
+                    target_tickers = []
             else:
                 target_tickers = []
         else:
-            st.warning("Earnings calendar API limit reached or unavailable.")
+            st.warning(f"Earnings API limit reached or blocked (Status Code: {response.status_code})")
             target_tickers = []
             
     except Exception as e:
-        st.warning(f"Calendar source temporarily unavailable. Please refresh.")
+        # DIAGNOSTIC OUTPUT: This will print the exact system error to your screen
+        st.error(f"🚨 Network/Data Error Detected: {type(e).__name__} - {str(e)}")
         target_tickers = []
+
+    # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
+    if target_tickers:
+        hist_start = (today - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+        hist_end = today.strftime('%Y-%m-%d')
+        
+        for ticker in target_tickers:
+            try:
+                hist_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{hist_start}/{hist_end}?adjusted=true&sort=asc&apiKey={API_KEY}"
+                h_res = requests.get(hist_url, timeout=5)
+                
+                if h_res.status_code == 200 and 'results' in h_res.json():
+                    hist_df = pd.DataFrame(h_res.json()['results'])
+                    hist_df['date'] = pd.to_datetime(hist_df['t'], unit='ms')
+                    hist_df.set_index('date', inplace=True)
+                    historical_data_frames[ticker] = hist_df
+                    
+                    report_date_str = earnings_df[earnings_df['symbol'] == ticker]['date'].iloc[0]
+                    report_date_obj = datetime.datetime.strptime(report_date_str, "%Y-%m-%d").date()
+                    days_left = (report_date_obj - today).days
+                    
+                    # Ensure we only process future events
+                    if days_left >= 0:
+                        record = analyze_market_vector(ticker, f"{ticker} Inc.", report_date_str, days_left, hist_df)
+                        live_records.append(record)
+            except:
+                continue
+
+    df = pd.DataFrame(live_records)
+    if not df.empty:
+        df = df.sort_values(by="Days Left")
+    return df, historical_data_frames
 
     # 2. HYBRID DATA AGGREGATION (Polygon Stocks Starter for Analytics)
     if target_tickers:
