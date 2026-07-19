@@ -7,7 +7,7 @@ import requests
 # 1. PAGE CONFIGURATION & HIGH-CONTRAST STYLING
 # --------------------------------------------------------
 st.set_page_config(
-    page_title="JYZ LTD | Live Institutional Earnings Engine",
+    page_title="JYZ | Live Institutional Earnings Engine",
     page_icon="🦅",
     layout="wide"
 )
@@ -673,7 +673,7 @@ else:
 # --------------------------------------------------------
 st.markdown("""
     <div class='footer'>
-        <p style='margin-bottom: 2px;'>© 2026 JYZ LTD | Live Institutional Earnings Engine</p>
+        <p style='margin-bottom: 2px;'>© 2026 JYZ | Live Institutional Earnings Engine</p>
         <span style='color: #d2143a;'>⚠️ Risk Disclosure: All quantitative outputs, trend summaries, and calculated expected moves are generated strictly for computational educational research and do not constitute formal investment advice.</span>
     </div>
 """, unsafe_allow_html=True)
