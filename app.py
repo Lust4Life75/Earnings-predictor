@@ -7,7 +7,7 @@ import requests
 # 1. PAGE CONFIGURATION & HIGH-CONTRAST STYLING
 # --------------------------------------------------------
 st.set_page_config(
-    page_title="JYZ LTD | Live Institutional Earnings Engine",
+    page_title="JYZ | Live Institutional Earnings Engine",
     page_icon="🦅",
     layout="wide"
 )
@@ -190,9 +190,9 @@ def get_all_nasdaq_tickers(api_key):
         pass
     return pd.DataFrame()
 
-# CHANGED TO v4 TO FORCE SERVER REFRESH
+# CHANGED TO v5 TO FORCE SERVER REFRESH
 @st.cache_resource
-def load_live_market_calendar_v4(horizon_days):
+def load_live_market_calendar_v5(horizon_days):
     import os
     today = datetime.date.today()
     historical_data_frames = {}
@@ -208,6 +208,7 @@ def load_live_market_calendar_v4(horizon_days):
         start_date = today.strftime('%Y-%m-%d')
         end_date = (today + datetime.timedelta(days=horizon_days)).strftime('%Y-%m-%d')
         
+        # Bulk API strictly follows horizon window to prevent alphabetical truncation
         finnhub_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&token={FINNHUB_KEY}"
         response = requests.get(finnhub_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         
@@ -216,8 +217,12 @@ def load_live_market_calendar_v4(horizon_days):
             earnings_data.extend(response.json().get("earningsCalendar", []))
             
         mega_caps = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'LLY', 'AVGO', 'JPM', 'SBUX']
+        
+        # 🛡️ THE BLIND SPOT FIX: Mega-Caps ALWAYS search 90 days ahead so they see their true dates
+        mc_end_date = (today + datetime.timedelta(days=90)).strftime('%Y-%m-%d')
+        
         for mc in mega_caps:
-            mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={end_date}&symbol={mc}&token={FINNHUB_KEY}"
+            mc_url = f"https://finnhub.io/api/v1/calendar/earnings?from={start_date}&to={mc_end_date}&symbol={mc}&token={FINNHUB_KEY}"
             try:
                 mc_res = requests.get(mc_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
                 if mc_res.status_code == 200:
@@ -233,7 +238,6 @@ def load_live_market_calendar_v4(horizon_days):
                 
                 # 🛡️ THE DUPLICATE DATE FIX: Force verified 'amc' / 'bmo' strings to the top
                 if 'hour' in earnings_df.columns:
-                    # Replace blanks with 'zzz' so they fall to the bottom of the ascending sort
                     earnings_df['hour'] = earnings_df['hour'].astype(str).replace({'': 'zzz_none', 'None': 'zzz_none', 'nan': 'zzz_none'})
                     earnings_df = earnings_df.sort_values(by=['symbol', 'hour', 'date'], ascending=[True, True, True])
                 else:
@@ -245,10 +249,10 @@ def load_live_market_calendar_v4(horizon_days):
                 sp500_df = earnings_df[is_sp500].copy()
                 others_df = earnings_df[~is_sp500].copy()
                 
+                # The Ghost Assassin: Destroy placeholders missing an EPS estimate (S&P 500 only)
                 if 'epsEstimate' in sp500_df.columns:
                     sp500_df = sp500_df.dropna(subset=['epsEstimate'])
                 
-                # Drop the fake duplicates. 'keep=first' now locks onto the real hour!
                 sp500_df = sp500_df.drop_duplicates(subset=['symbol'], keep='first')
                 others_df = others_df.drop_duplicates(subset=['symbol'], keep='first')
                 
@@ -299,9 +303,9 @@ def load_live_market_calendar_v4(horizon_days):
         df = df.sort_values(by="_Market_Cap_Proxy", ascending=False)
     return df, historical_data_frames
 
-# CHANGED TO v4
+# CHANGED TO v5
 @st.cache_data(ttl=86400)
-def load_fallback_history_v4(ticker, api_key):
+def load_fallback_history_v5(ticker, api_key):
     today = datetime.date.today()
     hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
     hist_end = today.strftime('%Y-%m-%d')
@@ -317,9 +321,9 @@ def load_fallback_history_v4(ticker, api_key):
         pass
     return None
 
-# CHANGED TO v3
+# CHANGED TO v4
 @st.cache_data(ttl=300)
-def load_intraday_data_v3(ticker, api_key):
+def load_intraday_data_v4(ticker, api_key):
     today = datetime.date.today()
     start_date = (today - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
@@ -375,7 +379,7 @@ else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
 
-df_live, raw_history = load_live_market_calendar_v4(max_days_allowed)
+df_live, raw_history = load_live_market_calendar_v5(max_days_allowed)
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
@@ -452,7 +456,7 @@ if not full_meta_list.empty:
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
     date_str = full_meta["Report Date"]
 else:
-    hist_data = load_fallback_history_v4(current_selected, API_KEY)
+    hist_data = load_fallback_history_v5(current_selected, API_KEY)
     if hist_data is not None and not hist_data.empty:
         price_today = hist_data['c'].iloc[-1]
         price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
@@ -464,7 +468,6 @@ else:
         calculated_move = f"± {round((firm_volatility_metric * 0.65) + 1.75, 1)}%"
         move_str = calculated_move if is_premium else "🔒 Pro Only"
         
-        # 🛡️ THE GHOST ASSASSIN INTERCEPTOR
         import os
         F_KEY = st.secrets.get("FINNHUB_API_KEY") or os.environ.get("FINNHUB_API_KEY", "")
         date_str = "N/A"
@@ -480,7 +483,7 @@ else:
                         temp_df = pd.DataFrame(single_earnings_data)
                         if 'date' in temp_df.columns:
                             
-                            # 🛡️ THE DUPLICATE DATE FIX
+                            # 🛡️ INTERCEPTOR FIX: Sort by hour to push true dates to the top before dropping duplicates
                             if 'hour' in temp_df.columns:
                                 temp_df['hour'] = temp_df['hour'].astype(str).replace({'': 'zzz_none', 'None': 'zzz_none', 'nan': 'zzz_none'})
                                 temp_df = temp_df.sort_values(by=['hour', 'date'], ascending=[True, True])
@@ -543,7 +546,7 @@ else:
 st.write("---")
 st.write("### 🔍 Live Charting & Horizon Performance Tracker")
 
-hist_data = raw_history.get(current_selected, load_fallback_history_v4(current_selected, API_KEY))
+hist_data = raw_history.get(current_selected, load_fallback_history_v5(current_selected, API_KEY))
 
 if hist_data is not None and not hist_data.empty:
     import altair as alt
@@ -561,7 +564,7 @@ if hist_data is not None and not hist_data.empty:
         
         is_intraday = False
         if time_frame == "1 Day View" or time_frame == "🔒 1 Day View (Pro Only)":
-            intraday_df = load_intraday_data_v3(current_selected, API_KEY)
+            intraday_df = load_intraday_data_v4(current_selected, API_KEY)
             if intraday_df is not None and not intraday_df.empty:
                 plot_df = intraday_df.tail(100).copy()
                 is_intraday = True
