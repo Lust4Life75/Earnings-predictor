@@ -373,7 +373,8 @@ else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
 
-df_live, raw_history = load_live_market_calendar_v7(max_days_allowed)
+# ---> NEW V8 CODE <---
+df_live, raw_history = load_live_market_calendar_v8(max_days_allowed)
 
 if not df_live.empty:
     filtered_df = df_live[df_live["Days Left"] <= max_days_allowed].copy()
