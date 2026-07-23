@@ -190,9 +190,9 @@ def get_all_nasdaq_tickers(api_key):
         pass
     return pd.DataFrame()
 
-# CHANGED TO v7 - FULL NUCLEAR CACHE BUST
-@st.cache_resource
-def load_live_market_calendar_v7(horizon_days):
+# CHANGED: Switched to @st.cache_data with a 1-hour TTL and bumped to v8
+@st.cache_data(ttl=3600)
+def load_live_market_calendar_v8(horizon_days):
     import os
     today = datetime.date.today()
     historical_data_frames = {}
@@ -233,20 +233,15 @@ def load_live_market_calendar_v7(horizon_days):
             earnings_df = pd.DataFrame(earnings_data)
             if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
                 
-                # Filter out past dates instantly
+                # Filter out past dates relative to the true today
                 earnings_df = earnings_df[earnings_df['date'] >= start_date]
                 
-                # 🛡️ THE ULTIMATE GHOST ASSASSIN
-                # Real dates are officially tagged 'amc' (After Market Close) or 'bmo' (Before Market Open)
                 if 'hour' in earnings_df.columns:
                     earnings_df['is_confirmed'] = earnings_df['hour'].astype(str).str.lower().isin(['amc', 'bmo', 'dmh'])
                 else:
                     earnings_df['is_confirmed'] = False
                 
-                # Sort Priority: Symbol (A-Z) -> Confirmed Dates (True first) -> Date (Earliest first)
                 earnings_df = earnings_df.sort_values(by=['symbol', 'is_confirmed', 'date'], ascending=[True, False, True])
-                
-                # Dropping duplicates by symbol now universally forces the real confirmed date to survive
                 earnings_df = earnings_df.drop_duplicates(subset=['symbol'], keep='first')
                 
                 sp500_list = get_sp500_tickers()
