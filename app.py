@@ -190,7 +190,7 @@ def get_all_nasdaq_tickers(api_key):
         pass
     return pd.DataFrame()
 
-# CHANGED: Switched to @st.cache_data with a 1-hour TTL and bumped to v8
+# V8 CACHE FIX: Uses cache_data with 1 Hour TTL to flush past dates dynamically
 @st.cache_data(ttl=3600)
 def load_live_market_calendar_v8(horizon_days):
     import os
@@ -233,7 +233,7 @@ def load_live_market_calendar_v8(horizon_days):
             earnings_df = pd.DataFrame(earnings_data)
             if 'symbol' in earnings_df.columns and 'date' in earnings_df.columns:
                 
-                # Filter out past dates relative to the true today
+                # Filter out past dates instantly relative to the newly refreshed `today` variable
                 earnings_df = earnings_df[earnings_df['date'] >= start_date]
                 
                 if 'hour' in earnings_df.columns:
@@ -297,9 +297,9 @@ def load_live_market_calendar_v8(horizon_days):
         df = df.sort_values(by="_Market_Cap_Proxy", ascending=False)
     return df, historical_data_frames
 
-# CHANGED TO v7
+# CHANGED TO v8
 @st.cache_data(ttl=86400)
-def load_fallback_history_v7(ticker, api_key):
+def load_fallback_history_v8(ticker, api_key):
     today = datetime.date.today()
     hist_start = (today - datetime.timedelta(days=450)).strftime('%Y-%m-%d')
     hist_end = today.strftime('%Y-%m-%d')
@@ -315,9 +315,9 @@ def load_fallback_history_v7(ticker, api_key):
         pass
     return None
 
-# CHANGED TO v6
+# CHANGED TO v8
 @st.cache_data(ttl=300)
-def load_intraday_data_v6(ticker, api_key):
+def load_intraday_data_v8(ticker, api_key):
     today = datetime.date.today()
     start_date = (today - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
@@ -373,7 +373,7 @@ else:
     st.toggle("🔒 Filter by High-Conviction Setups (Pro Feature)", disabled=True)
     high_conviction_only = False
 
-# ---> NEW V8 CODE <---
+# THE FIX: This perfectly perfectly links to the newly updated v8 calendar loader
 df_live, raw_history = load_live_market_calendar_v8(max_days_allowed)
 
 if not df_live.empty:
@@ -451,7 +451,8 @@ if not full_meta_list.empty:
     move_str = full_meta["Expected Move %"] if is_premium else "🔒 Pro Only"
     date_str = full_meta["Report Date"]
 else:
-    hist_data = load_fallback_history_v7(current_selected, API_KEY)
+    # CALL SYNCED TO v8
+    hist_data = load_fallback_history_v8(current_selected, API_KEY)
     if hist_data is not None and not hist_data.empty:
         price_today = hist_data['c'].iloc[-1]
         price_14d_ago = hist_data['c'].iloc[-14] if len(hist_data) >= 14 else hist_data['c'].iloc[0]
@@ -480,7 +481,6 @@ else:
                             temp_df = temp_df[temp_df['date'] >= t_start]
                             
                             if not temp_df.empty:
-                                # 🛡️ INTERCEPTOR FIX: Time of Day Assassin
                                 if 'hour' in temp_df.columns:
                                     temp_df['is_confirmed'] = temp_df['hour'].astype(str).str.lower().isin(['amc', 'bmo', 'dmh'])
                                 else:
@@ -539,7 +539,8 @@ else:
 st.write("---")
 st.write("### 🔍 Live Charting & Horizon Performance Tracker")
 
-hist_data = raw_history.get(current_selected, load_fallback_history_v7(current_selected, API_KEY))
+# CALL SYNCED TO v8
+hist_data = raw_history.get(current_selected, load_fallback_history_v8(current_selected, API_KEY))
 
 if hist_data is not None and not hist_data.empty:
     import altair as alt
@@ -557,7 +558,8 @@ if hist_data is not None and not hist_data.empty:
         
         is_intraday = False
         if time_frame == "1 Day View" or time_frame == "🔒 1 Day View (Pro Only)":
-            intraday_df = load_intraday_data_v6(current_selected, API_KEY)
+            # CALL SYNCED TO v8
+            intraday_df = load_intraday_data_v8(current_selected, API_KEY)
             if intraday_df is not None and not intraday_df.empty:
                 plot_df = intraday_df.tail(100).copy()
                 is_intraday = True
@@ -680,7 +682,7 @@ else:
 # --------------------------------------------------------
 st.markdown("""
     <div class='footer'>
-        <p style='margin-bottom: 2px;'>© 2026 JYZ | Live Institutional Earnings Engine</p>
+        <p style='margin-bottom: 2px;'>© 2026 JYZ LTD | Live Institutional Earnings Engine</p>
         <span style='color: #d2143a;'>⚠️ Risk Disclosure: All quantitative outputs, trend summaries, and calculated expected moves are generated strictly for computational educational research and do not constitute formal investment advice.</span>
     </div>
 """, unsafe_allow_html=True)
